@@ -28,48 +28,34 @@ Imported by main.py (returns the result object, also prints to the console):
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Union
 
 import numpy as np
 import pandas as pd
 
+from util import (
+    CLMN_ALPHA,
+    CLMN_BETA,
+    CLMN_PHI_DST,
+    CLMN_PHI_SRC,
+    CLMN_SEQ_ID,
+    CLMN_STEP,
+    DEFAULT_CSV,
+    EstimationResult,
+    HERE,
+    load_vsa_dataset,
+)
 
-HERE = Path(__file__).resolve().parent
-TERM_PROJECT_DIR = HERE.parent
-DEFAULT_CSV = TERM_PROJECT_DIR / "Engin-vsa_dataset_full.csv"
+
 DEFAULT_OUT = HERE / "outputs" / "task1_estimation"
-
-COLUMNS = ["sequence_id", "step", "phi_src", "phi_dst", "alpha", "beta"]
-
-
-@dataclass
-class EstimationResult:
-    """Structured return value of :func:`run_estimation`."""
-
-    counts_phi_alpha: pd.DataFrame                    # N(phi_i, alpha_k)
-    counts_phi_alpha_phi: Dict[str, pd.DataFrame]     # N(phi_i, alpha_k, phi_j) per alpha
-    counts_alpha_beta: pd.DataFrame                   # N(alpha_k, beta)
-    policy: pd.DataFrame                              # P(alpha_k | phi_i)
-    transition: Dict[str, pd.DataFrame]               # P(phi_j | phi_i, alpha_k) per alpha
-    penalty: pd.Series                                # c_k = P(beta=1 | alpha_k)
-    empirical_penalty: pd.Series                      # df.groupby('alpha')['beta'].mean()
-    checks: Dict[str, bool]                           # named pass/fail flags
-    states: list
-    actions: list
-    n_rows: int
-
-
-def _load_dataset(csv_path: Path) -> pd.DataFrame:
-    df = pd.read_csv(csv_path, header=None, names=COLUMNS, encoding="utf-8")
-    df["sequence_id"] = df["sequence_id"].astype(int)
-    df["step"] = df["step"].astype(int)
-    df["beta"] = df["beta"].astype(int)
-    return df
 
 
 def _section(title: str) -> str:
+
+    # ========================================================================  (72 ='s)
+    # title
+    # ========================================================================  (72 ='s)
     bar = "=" * 72
     return f"\n{bar}\n{title}\n{bar}"
 
@@ -79,7 +65,7 @@ def _fmt(obj) -> str:
 
 
 def run_estimation(
-    csv_path: Union[Path, str] = DEFAULT_CSV,
+    csv_path: Union[Path, str] = DEFAULT_CSV, # "Engin-vsa_dataset_full.csv"
     *,
     output_dir: Optional[Union[Path, str]] = None,
     print_to_console: bool = True,
@@ -101,42 +87,48 @@ def run_estimation(
         Counts, probabilities, penalty vector, and a dict of check flags.
     """
     csv_path = Path(csv_path)
-    df = _load_dataset(csv_path)
+    df = load_vsa_dataset(csv_path) # load from file that each line is "1,1,φ1,φ2,α1,1" format
 
-    states = sorted(set(df["phi_src"].unique()) | set(df["phi_dst"].unique()))
-    actions = sorted(df["alpha"].unique())
+    states = sorted(set(df[CLMN_PHI_SRC].unique()) | set(df[CLMN_PHI_DST].unique()))
+    actions = sorted(df[CLMN_ALPHA].unique())
     betas = [0, 1]
 
-    # Raw counts ---------------------------------------------------------
+    # count by grouping how many action alpha taken in state phi
     N_phi_alpha = (
-        df.groupby(["phi_src", "alpha"]).size()
+        df.groupby([CLMN_PHI_SRC, CLMN_ALPHA]).size()
           .unstack(fill_value=0)
           .reindex(index=states, columns=actions, fill_value=0)
     )
-    N_phi_alpha.index.name = "phi_src"
-    N_phi_alpha.columns.name = "alpha"
+    N_phi_alpha.index.name = CLMN_PHI_SRC
+    N_phi_alpha.columns.name = CLMN_ALPHA
 
+    # count by grouping how many transitions from state phi_src to state phi_dst for action a
     N_phi_alpha_phi: Dict[str, pd.DataFrame] = {}
     for a in actions:
         tab = (
-            df[df["alpha"] == a]
-              .groupby(["phi_src", "phi_dst"]).size()
+            df[df[CLMN_ALPHA] == a]
+              .groupby([CLMN_PHI_SRC, CLMN_PHI_DST]).size()
               .unstack(fill_value=0)
               .reindex(index=states, columns=states, fill_value=0)
         )
-        tab.index.name = "phi_src"
-        tab.columns.name = "phi_dst"
+        tab.index.name = CLMN_PHI_SRC
+        tab.columns.name = CLMN_PHI_DST
         N_phi_alpha_phi[a] = tab
 
+    # count by grouping how many action alpha valuated with beta
     N_alpha_beta = (
-        df.groupby(["alpha", "beta"]).size()
+        df.groupby([CLMN_ALPHA, CLMN_BETA]).size()
           .unstack(fill_value=0)
           .reindex(index=actions, columns=betas, fill_value=0)
     )
-    N_alpha_beta.index.name = "alpha"
-    N_alpha_beta.columns.name = "beta"
+    N_alpha_beta.index.name = CLMN_ALPHA
+    N_alpha_beta.columns.name = CLMN_BETA
 
     # Conditional probabilities -----------------------------------------
+    # N_phi_alpha       : how many action alpha taken in state phi
+    # N_phi_alpha_phi   : how many transitions from state phi_src to state phi_dst for action a
+    # N_alpha_beta      : how many action alpha valuated with beta
+
     row_totals_phi = N_phi_alpha.sum(axis=1)
     policy = N_phi_alpha.div(row_totals_phi.replace(0, np.nan), axis=0).fillna(0.0)
 
@@ -151,7 +143,7 @@ def run_estimation(
     penalty.name = "c_k"
 
     empirical_penalty = (
-        df.groupby("alpha")["beta"].mean().reindex(actions, fill_value=0.0)
+        df.groupby(CLMN_ALPHA)[CLMN_BETA].mean().reindex(actions, fill_value=0.0)
     )
     empirical_penalty.name = "empirical_penalty"
 
@@ -200,6 +192,7 @@ def run_estimation(
     lines.append(f"States observed : {states}")
     lines.append(f"Actions observed: {actions}")
 
+    # how many action k taken in state i
     lines.append(_section("N(phi_i, alpha_k)   -- raw counts"))
     lines.append(_fmt(N_phi_alpha))
 
