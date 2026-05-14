@@ -114,13 +114,13 @@ def _compute_core(
 ) -> Tuple[float, float, pd.Series, List[str]]:
     if alpha_star not in policy.columns:
         raise ValueError(
-            f"α* column {alpha_star!r} not in policy columns {list(policy.columns)}. "
+            f"alpha* column {alpha_star!r} not in policy columns {list(policy.columns)}. "
             "Regenerate policy.csv / run Task 1 after Task 2."
         )
     row_totals = counts_phi_alpha.sum(axis=1)
     visited = row_totals > 0
     if not bool(visited.any()):
-        raise ValueError("No visited states in count matrix; cannot compute ε.")
+        raise ValueError("No visited states in count matrix; cannot compute epsilon.")
 
     p_col = policy.loc[visited, alpha_star].astype(float)
     min_p = float(np.min(p_col.values))

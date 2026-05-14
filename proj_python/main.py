@@ -3,12 +3,12 @@
 Each task lives in its own module and exposes a single ``run_*`` entry
 point that returns a structured result and prints to the console. This
 script wires them together; the dataset fingerprint runs first, then
-Tasks~1--3 (and later tasks) consume the loaded CSV or prior results.
+Tasks~1--4 (and later tasks) consume the loaded CSV or prior results.
 
 Run:
     python main.py [--csv PATH]
 
-Entry point: ``load_all()`` wires fingerprint, Tasks~1--3 (and later tasks).
+Entry point: ``load_all()`` wires fingerprint, Tasks~1--4 (and later tasks).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from estimation import run_estimation
 from fingerprint import run_fingerprint
 from optimal_action_identification import run_optimal_action
 from e_optimality_analysis import run_epsilon_optimality
+from simulation import run_simulation
 
 
 def load_all() -> None:
@@ -63,8 +64,15 @@ def load_all() -> None:
         print_to_console=True,
     )
 
-    # Downstream tasks will consume `estimation`, `optimal`, and `epsilon_res`:
-    # task4 = run_simulation(estimation, args.csv)
+    # Task 4 — Simulation
+    sim_res = run_simulation(
+        estimation=estimation,
+        csv_path=args.csv,
+        output_dir=None,
+        print_to_console=True,
+    )
+
+    # Downstream tasks will consume `estimation`, `optimal`, `epsilon_res`, and `sim_res`:
     # task5 = run_perturbation(args.csv)
     # task6 = run_model_check(args.csv, estimation)
 
@@ -82,6 +90,13 @@ def load_all() -> None:
           f"(c_star = {optimal.c_star:.6f})")
     print(f"  epsilon (Task 3)   : ε = {epsilon_res.epsilon:.6f}  "
           f"(min P(α*|φ) = {epsilon_res.min_p_alpha_star:.6f})")
+    print(
+        "  simulation L1      : actions="
+        f"{sim_res.l1_action:.4f}  phi_src={sim_res.l1_phi_src:.4f}  "
+        f"phi_dst={sim_res.l1_phi_dst:.4f}  |Δpen|/act="
+        f"{sim_res.l1_penalty_per_action:.4f}  |Δpen|_global="
+        f"{sim_res.abs_diff_penalty_global:.4f}"
+    )
 
 if __name__ == "__main__":
     load_all()

@@ -6,7 +6,7 @@ Open this folder in PyCharm. Interpreter: `D:\Documents\00-PhD\shared-venv`.
 
 - `util.py` — shared helpers: default CSV path, column name constants,
   `load_vsa_dataset()`, ``EstimationResult`` (Task~1), and ``OptimalActionResult`` (Task~2).
-- `main.py` — orchestrator: ``load_all()`` runs dataset fingerprint first, then Tasks~1--3
+- `main.py` — orchestrator: ``load_all()`` runs dataset fingerprint first, then Tasks~1--4
   (and later tasks).
 - `fingerprint.py` — **Dataset fingerprint (before modeling).** Row count,
   sequence count, mean sequence length, empirical penalty rate per action,
@@ -19,6 +19,9 @@ Open this folder in PyCharm. Interpreter: `D:\Documents\00-PhD\shared-venv`.
 - `e_optimality_analysis.py` — **Task 3: ε-optimality.** Computes
   $\varepsilon = 1 - \min_i P(\alpha^{*} \mid \phi_i)$ over visited states;
   writes interpretation text for the assignment prompts.
+- `simulation.py` — **Task 4: Simulation.** Generates synthetic sequences from
+  the learned policy / transitions / $c_k$, compares marginals to the real CSV,
+  and reports $|P_{\text{data}} - P_{\text{sim}}|$.
 - `requirements.txt` — `numpy`, `pandas`.
 
 ## Two run modes for each task module
@@ -48,19 +51,27 @@ python optimal_action_identification.py
 # Task 3 alone — reads policy.csv + N_phi_alpha.csv (Task 1) and alpha_star.csv (Task 2)
 python e_optimality_analysis.py
 
+# Task 4 alone — reads policy/transition/penalty from Task 1 outputs + real CSV for marginals
+python simulation.py
+
 # Or via the orchestrator (no files written, results passed in-process)
 python main.py
 ```
 
 Optional flags:
 
-- `--csv PATH` — dataset CSV path (used by `main.py`, `fingerprint.py`, and
-  `estimation.py`; default lives in `util.DEFAULT_CSV`).
+- `--csv PATH` — dataset CSV path (used by `main.py`, `fingerprint.py`,
+  `estimation.py`, and `simulation.py`; default lives in `util.DEFAULT_CSV`).
 - `--out DIR` — per-task output directory in direct-run mode
   (defaults: `outputs/dataset_fingerprint/`, `outputs/task1_estimation/`,
-  `outputs/task2_optimal_action/`, `outputs/task3_epsilon_optimality/`).
-- `--policy-dir` / `--optimal-dir` — for `e_optimality_analysis.py` only
-  (defaults: Task 1 and Task 2 output directories).
+  `outputs/task2_optimal_action/`, `outputs/task3_epsilon_optimality/`,
+  `outputs/task4_simulation/`).
+- `--policy-dir` — Task~1 output folder: used with `--optimal-dir` by
+  `e_optimality_analysis.py`, and alone by `simulation.py` (real marginals
+  still from `--csv`). Default: `outputs/task1_estimation/`.
+- `--optimal-dir` — Task~2 output folder (for `e_optimality_analysis.py` only;
+  default: `outputs/task2_optimal_action/`).
+- `--seed` — RNG seed for `simulation.py` (default: 42).
 - `--in DIR` — for `optimal_action_identification.py` only: where to
   find `penalty.csv` (defaults to `estimation.py`'s output directory).
 
@@ -108,4 +119,17 @@ When `e_optimality_analysis.py` is run directly it writes to
   `visited_state_count`, `argmin_states`.
 - `p_alpha_star_per_state.csv` — $P(\alpha^{*} \mid \phi_i)$ for each visited state.
 - `interpretation.csv` — qualitative answers plus numeric diagnostics.
+- `report.txt` — full human-readable console output.
+
+## Task 4 outputs
+
+When `simulation.py` is run directly it writes to `outputs/task4_simulation/`:
+
+- `marginal_action.csv`, `marginal_phi_src.csv`, `marginal_phi_dst.csv` —
+  $P_{\text{data}}$, $P_{\text{sim}}$, and $|P_{\text{data}} - P_{\text{sim}}|$
+  per category.
+- `penalty_rate_per_action.csv` — empirical penalty rate vs simulated, plus
+  absolute difference per action.
+- `simulation_summary.csv` — global $|\Delta\text{penalty}|$, L1 sums, seed.
+- `synthetic_sequences.csv` — full synthetic dataset (same row count as real CSV).
 - `report.txt` — full human-readable console output.

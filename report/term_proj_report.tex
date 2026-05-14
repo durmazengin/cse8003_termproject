@@ -13,7 +13,7 @@
 
 \lstset{
   language=Python,
-  basicstyle=\ttfamily\small,
+  basicstyle=\ttfamily\footnotesize,
   keywordstyle=\color{blue!70!black},
   commentstyle=\color{gray!60},
   stringstyle=\color{green!40!black},
@@ -35,9 +35,11 @@
 This report documents work toward inferring a Variable-Structure Automaton (VSA)
 from a unique dataset of state--action--feedback tuples generated in a P-model
 environment. We summarize the mathematical background for empirical counts and
-conditional estimates, describe the implemented methodology for Tasks~1 and~2
-(estimation and optimal-action identification) with references to the Python
-codebase, and outline planned experiments for the remaining assignment tasks.
+conditional estimates, the methodology for Tasks~1--4
+(estimation, optimal-action identification, $\varepsilon$-optimality, and
+simulation) in mathematical terms, and outline planned work for
+Tasks~5--6. Implementation scripts live under \texttt{../proj\_python/}; excerpts
+appear in Appendix~\ref{app:code}.
 \end{abstract}
 
 \section{Introduction}
@@ -52,9 +54,9 @@ $(\text{sequence\_id},\,\text{step},\,\Phi_{\mathrm{src}}(n),\,\Phi_{\mathrm{dst
 This document aligns notation with the course assignment and with the
 implementation under \texttt{../proj\_python/}.
 
-\section{Background}
+\section{Background}\label{sec:background}
 
-\subsection{Empirical count $N(\phi_i,\alpha_k)$}
+\subsection[Empirical count N(phi, alpha)]{Empirical count $N(\phi_i,\alpha_k)$}
 
 The number of times action $\alpha_k$ was taken while the source state was
 $\phi_i$ is
@@ -65,7 +67,7 @@ $\phi_i$ is
 In the CSV, $\Phi_{\mathrm{src}}(n)$ is the column \texttt{phi\_src} and
 $\alpha(n)$ is \texttt{alpha}.
 
-\subsection{Policy estimate $P(\alpha_k\mid\phi_i)$}
+\subsection[Policy estimate]{Policy estimate $P(\alpha_k\mid\phi_i)$}
 
 Empirical policy probabilities normalize the counts in each state:
 \begin{equation}
@@ -93,12 +95,16 @@ $P(\phi_j\mid\phi_i,\alpha_k)$ and penalty probabilities
 $c_k = P(\beta=1\mid\alpha_k)$ by row-wise normalization of the appropriate
 count tables.
 
-\section{Methodology}
+\section{Methodology}\label{sec:methodology}
 
 All runnable code lives in \texttt{../proj\_python/}.
-\texttt{main.py} orchestrates tasks; each task module can be run standalone
+\texttt{load\_all()} in \texttt{main.py} orchestrates tasks (calling the
+\texttt{run\_*} entry points above); each task module can be run standalone
 (writing outputs under \texttt{outputs/}) or imported (returning structured
 results while still printing to the console).
+Excerpts of the Python modules for Tasks~1--4 are collected in Appendix~\ref{app:code}.
+Each task below ties the mathematics to concrete entry points (\texttt{run\_*} functions)
+and to the corresponding appendix listing.
 
 \subsection{Task 1 --- Estimation}
 
@@ -106,14 +112,19 @@ We load the headerless UTF-8 CSV, build \texttt{N\_phi\_alpha} by grouping on
 \texttt{phi\_src} and \texttt{alpha}, build per-action transition count
 matrices \texttt{N\_phi\_alpha\_phi}, build \texttt{N\_alpha\_beta}, then
 derive \texttt{policy}, \texttt{transition}, and \texttt{penalty} ($c_k$).
-The following excerpt is the core link between
-Equations~(1)--(3) and the implementation.
-
-\lstinputlisting[firstline=117,lastline=164]{../proj_python/estimation.py}
-
-Consistency checks verify that policy rows and transition rows (where data
-exist) sum to unity, and that $c_k$ matches the empirical mean of $\beta$
-per action. See \texttt{estimation.py} lines 171--193.
+Let $r_i=\sum_k N(\phi_i,\alpha_k)$. For visited states ($r_i>0$),
+$P(\alpha_k\mid\phi_i)=N(\phi_i,\alpha_k)/r_i$; for each action $\alpha_k$,
+transition probabilities normalize each row of $N(\phi_i,\alpha_k,\phi_j)$ over
+$\phi_j$. Penalties use
+$c_k = N(\alpha_k,1)\big/\sum_{\beta\in\{0,1\}} N(\alpha_k,\beta)$,
+equivalently the empirical mean of $\beta$ conditional on $\alpha_k$.
+These operations realize the count-based policy in Section~\ref{sec:background}
+and extend the same row-normalization idea to transition tables and to
+$c_k$ from $N(\alpha_k,\beta)$.
+\noindent The companion code is in \texttt{estimation.py} (entry point \texttt{run\_estimation});
+shared types and column constants live in \texttt{util.py}.
+Appendix~\ref{app:estimation} reproduces lines~117--164 (counts through
+\texttt{policy}, \texttt{transition}, \texttt{penalty}, and basic consistency checks).
 
 \subsection{Task 2 --- Optimal action identification}
 
@@ -125,26 +136,63 @@ Under the P-model, the optimal action minimizes the penalty probability:
 The implementation reads $c_k$ from the in-memory \texttt{EstimationResult}
 when called from \texttt{main.py}, or from \texttt{penalty.csv} after a
 standalone Task~1 run. Ties at the minimum are resolved deterministically
-(first label in sorted order).
+(first label in sorted order). Computationally,
+$\alpha^\ast = \arg\min_k c_k$ among the empirical $c_k$ from Task~1.
+\noindent The companion code is in \texttt{optimal\_action\_identification.py}
+(entry point \texttt{run\_optimal\_action}); Appendix~\ref{app:optimal} shows lines~110--131
+(tie-breaking at the minimum $c_k$ and construction of the result object).
 
-\lstinputlisting[firstline=110,lastline=131]{../proj_python/optimal_action_identification.py}
+\subsection[Task 3 --- epsilon-optimality]{Task 3 --- $\varepsilon$-optimality}
 
-\subsection{Tasks 3--6 (planned)}
+Given $\alpha^\ast$ from Task~2 and the policy $P(\alpha\mid\phi)$ from Task~1,
+the assignment defines
+\begin{equation}
+  \varepsilon = 1 - \min_i P(\alpha^\ast\mid\phi_i),
+\end{equation}
+where the minimum is taken over \textbf{visited} states $\phi_i$, i.e.\ rows of
+\texttt{N\_phi\_alpha} with positive row sum (states that appear in the data).
+States never visited are excluded so the minimum reflects empirical support.
+Let $\mathcal{V}=\{\phi_i : \sum_k N(\phi_i,\alpha_k)>0\}$; then equivalently
+$\varepsilon = 1 - \min_{\phi_i \in \mathcal{V}} P(\alpha^\ast\mid\phi_i)$.
+The same quantity can be evaluated from stored matrices or from Task~1--2
+outputs on disk.
+\noindent The companion code is in \texttt{e\_optimality\_analysis.py}; helper
+\texttt{\_compute\_core} evaluates the minimum over visited states, and
+\texttt{run\_epsilon\_optimality} dispatches in-memory \texttt{EstimationResult} /
+\texttt{OptimalActionResult} \emph{vs.}\ CSV inputs from Tasks~1--2.
+Appendix~\ref{app:epsilon} lists lines~110--130.
+
+\subsection{Task 4 --- Simulation}
+
+Synthetic trajectories use the learned \textbf{policy}, \textbf{transition}
+matrices, and \textbf{penalty} vector $c_k = P(\beta{=}1\mid\alpha_k)$. For each
+real sequence ID we keep the \textbf{same length} and \textbf{same starting}
+$\Phi_{\mathrm{src}}$ as in the dataset; each step samples
+$\alpha \sim P(\cdot\mid\phi)$, then $\phi' \sim P(\cdot\mid\phi,\alpha)$, then
+$\beta \sim \mathrm{Bernoulli}(c_\alpha)$. Marginals of actions, $\phi_{\mathrm{src}}$,
+$\phi_{\mathrm{dst}}$, and penalty rates are compared to the real CSV; the code
+reports $|P_{\mathrm{data}}-P_{\mathrm{sim}}|$ per category (and L1-style sums).
+If a transition row is missing for the current $\phi$, a uniform next-state
+distribution is used so sampling remains well-defined.
+Marginal distributions are empirical frequencies over rows (actions,
+$\Phi_{\mathrm{src}}$, $\Phi_{\mathrm{dst}}$); penalty comparison uses per-action
+sample means of $\beta$ and the global mean.
+\noindent The companion code is in \texttt{simulation.py}; \texttt{\_simulate\_block}
+implements one synthetic dataset aligned with real sequence lengths and initial
+states, and \texttt{run\_simulation} loads the real CSV, compares marginals, and
+aggregates absolute differences (from line~246 onward in the source file).
+Appendix~\ref{app:simulation} shows lines~134--184.
+
+\subsection{Tasks 5--6 (planned)}
 
 \begin{itemize}
-  \item \textbf{Task 3 ($\varepsilon$-optimality):}
-        $\varepsilon = 1 - \min_i P(\alpha^\ast\mid\phi_i)$ using the policy
-        matrix from Task~1 and $\alpha^\ast$ from Task~2.
-  \item \textbf{Task 4 (simulation):} sample synthetic trajectories from the
-        learned policy and transition model; compare marginal distributions to
-        the dataset.
   \item \textbf{Task 5 (perturbation):} randomly remove 20\% of transitions
         and re-estimate $c_k$, policy, and $\varepsilon$.
   \item \textbf{Task 6 (model critique):} estimate $c_k$ separately per
         source state and compare across states to assess the P-model assumption.
 \end{itemize}
-These will extend \texttt{main.py} with new modules mirroring the dual-run
-convention used for Tasks~1--2.
+These will extend \texttt{load\_all()} with new modules mirroring the dual-run
+convention used for Tasks~1--4.
 
 \section{Experiments}
 
@@ -158,22 +206,51 @@ per step; Greek state/action labels) is the default input for
         \texttt{cd ../proj\_python \&\& python estimation.py}
   \item Task~2 after Task~1 files exist:
         \texttt{cd ../proj\_python \&\& python optimal\_action\_identification.py}
+  \item Task~3 after Tasks~1--2 outputs exist:
+        \texttt{cd ../proj\_python \&\& python e\_optimality\_analysis.py}
+  \item Task~4 after Task~1 (and real CSV for marginals):
+        \texttt{cd ../proj\_python \&\& python simulation.py}
   \item End-to-end in memory (no intermediate files required):
         \texttt{cd ../proj\_python \&\& python main.py}
 \end{enumerate}
-Planned experiments for the final report will include the dataset fingerprint
-checksum, full numeric tables for Tasks~1--2, and (once implemented) figures
-and tables for simulation match, perturbation robustness, and per-state
-penalty comparison.
+Planned extensions for the final report include the dataset fingerprint,
+full tables for Tasks~1--4, and (once implemented) perturbation analysis and
+per-state penalty comparison for the P-model critique.
 
 \section{Conclusion}
 
-We fixed notation for empirical counts and policy normalization, and showed
-how \texttt{N\_phi\_alpha}, \texttt{row\_totals\_phi}, and \texttt{policy} in
-\texttt{estimation.py} implement Equations~(1)--(3). Task~2 selects
-$\alpha^\ast$ by minimizing $c_k$ from the same estimation pipeline. The
-remaining tasks complete the assignment's data-driven story: optimality
-diagnostics, generative validation, robustness under missing transitions, and
-critique of the P-model assumption.
+We fixed notation for empirical counts and policy normalization, and linked
+Task~1 estimates to the count-based constructions in Section~\ref{sec:background}.
+Task~2 selects
+$\alpha^\ast$ by minimizing $c_k$; Task~3 quantifies $\varepsilon$-optimality
+via $\min_i P(\alpha^\ast\mid\phi_i)$ over visited states; Task~4 validates the
+generative model against data marginals. Remaining work covers perturbation
+robustness and critique of the P-model assumption.
+
+\appendix
+\section[Supplementary source code]{Supplementary source code listing}\label{app:code}
+
+In academic and technical writing it is common to relegate lengthy program text
+to an \emph{appendix} (or to separate \emph{supplementary material}) so the main
+body stays focused on definitions, assumptions, and results; journals often use
+the latter term for online-only addenda, while PDF reports typically use a
+lettered appendix. The excerpts below are line ranges from the course repository;
+they illustrate how the formulas in Section~\ref{sec:methodology} are evaluated.
+
+\subsection{Task 1: \texttt{estimation.py} (probability construction)}\label{app:estimation}
+
+\lstinputlisting[firstline=117,lastline=164]{../proj_python/estimation.py}
+
+\subsection{Task 2: \texttt{optimal\_action\_identification.py}}\label{app:optimal}
+
+\lstinputlisting[firstline=110,lastline=131]{../proj_python/optimal_action_identification.py}
+
+\subsection[Task 3: e-optimality excerpt]{Task 3: \texttt{e\_optimality\_analysis.py} ($\varepsilon$-optimality core)}\label{app:epsilon}
+
+\lstinputlisting[firstline=110,lastline=130]{../proj_python/e_optimality_analysis.py}
+
+\subsection{Task 4: \texttt{simulation.py} (trajectory simulation)}\label{app:simulation}
+
+\lstinputlisting[firstline=134,lastline=184]{../proj_python/simulation.py}
 
 \end{document}
