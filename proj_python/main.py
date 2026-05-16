@@ -59,11 +59,33 @@ class PipelineRunResult:
     n_rows: int
     alpha_star: str
     c_star: float
+    c_k_per_state: pd.DataFrame
     epsilon: float
     min_p_alpha_star: float
     l1_action: float
     l1_phi_src: float
     l1_phi_dst: float
+
+
+def _spread_across_states(c_k_per_state: pd.DataFrame) -> pd.Series:
+    """Per action: max_phi c_k(phi) - min_phi c_k(phi) (P-model spread diagnostic)."""
+    return c_k_per_state.max(axis=0) - c_k_per_state.min(axis=0)
+
+
+def _max_abs_table_delta(reference: pd.DataFrame, other: pd.DataFrame) -> float:
+    """Largest |c_k(phi, alpha) - reference| over aligned cells."""
+    aligned = other.reindex_like(reference).fillna(0.0)
+    return float(np.abs(aligned - reference).max().max())
+
+
+def _format_c_k_per_state_lines(run: PipelineRunResult) -> List[str]:
+    """Human-readable block for one run's per-state penalty table."""
+    indented = run.c_k_per_state.round(6).to_string()
+    return [
+        f"{run.label}  (n={run.n_rows} rows):",
+        indented,
+        "",
+    ]
 
 
 def _run_tasks_1_to_4(
@@ -78,6 +100,7 @@ def _run_tasks_1_to_4(
         dataset_label=dataset_label,
         output_dir=None,
         print_to_console=print_to_console,
+        print_penalty_per_state=False,
     )
     optimal = run_optimal_action(
         estimation=estimation,
@@ -101,6 +124,7 @@ def _run_tasks_1_to_4(
         n_rows=len(df),
         alpha_star=optimal.alpha_star,
         c_star=optimal.c_star,
+        c_k_per_state=estimation.penalty_per_state.copy(),
         epsilon=epsilon_res.epsilon,
         min_p_alpha_star=epsilon_res.min_p_alpha_star,
         l1_action=sim_res.l1_action,
@@ -123,6 +147,18 @@ def _print_run_results(run: PipelineRunResult) -> None:
     )
 
 
+def _print_c_k_per_state_runs(runs: List[PipelineRunResult]) -> None:
+    """Print per-state penalty tables for one or more pipeline runs."""
+    lines = [
+        _section("Task 6 — Model assumption check"),
+        "c_k(phi_i) = P(beta=1 | alpha_k, phi_i)",
+        "",
+    ]
+    for run in runs:
+        lines.extend(_format_c_k_per_state_lines(run))
+    print("\n".join(lines))
+
+
 def _print_experiments_summary(
     *,
     csv_path: Path,
@@ -133,6 +169,17 @@ def _print_experiments_summary(
     perturbed: List[PipelineRunResult],
 ) -> None:
     epsilons = np.array([r.epsilon for r in perturbed], dtype=float)
+    baseline_spread = _spread_across_states(baseline.c_k_per_state)
+    perturbed_spreads = np.array(
+        [_spread_across_states(r.c_k_per_state).values for r in perturbed],
+        dtype=float,
+    )
+    table_deltas = np.array(
+        [_max_abs_table_delta(baseline.c_k_per_state, r.c_k_per_state) for r in perturbed],
+        dtype=float,
+    )
+    actions = list(baseline.c_k_per_state.columns)
+
     lines = [
         _section(
             f"Task 5 — Perturbation "
@@ -165,7 +212,47 @@ def _print_experiments_summary(
             f"\n  delta_epsilon (perturbed - baseline) = "
             f"{perturbed[0].epsilon - baseline.epsilon:+.6f}"
         )
+
+    lines.extend(
+        [
+            "Spread across states per action  (max_phi c_k - min_phi c_k):",
+            "  Baseline:  "
+            + "  ".join(f"{a}={baseline_spread[a]:.6f}" for a in actions),
+        ]
+    )
+    if perturbed:
+        if len(perturbed) > 1:
+            spread_mean = perturbed_spreads.mean(axis=0)
+            spread_std = perturbed_spreads.std(axis=0, ddof=1)
+            lines.append(
+                "  Perturbed: "
+                + "  ".join(
+                    f"{a}=mean {spread_mean[i]:.6f}  std {spread_std[i]:.6f}"
+                    for i, a in enumerate(actions)
+                )
+            )
+            lines.extend(
+                [
+                    "",
+                    "  |c_k_per_state - baseline| max cell delta:",
+                    f"    mean={table_deltas.mean():.6f}  "
+                    f"std={table_deltas.std(ddof=1):.6f}  "
+                    f"max={table_deltas.max():.6f}",
+                ]
+            )
+        else:
+            p_spread = _spread_across_states(perturbed[0].c_k_per_state)
+            lines.append(
+                "  Perturbed: "
+                + "  ".join(f"{a}={p_spread[a]:.6f}" for a in actions)
+            )
+            lines.append(
+                f"\n  |c_k_per_state - baseline| max cell delta: "
+                f"{table_deltas[0]:.6f}"
+            )
+
     print("\n".join(lines))
+    _print_c_k_per_state_runs([baseline, *perturbed])
 
 
 def run_all(
@@ -255,6 +342,8 @@ def run_all(
                 baseline=baseline,
                 perturbed=results[1:],
             )
+    elif print_to_console:
+        _print_c_k_per_state_runs([baseline])
 
     return results
 

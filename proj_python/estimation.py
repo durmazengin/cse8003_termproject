@@ -68,6 +68,7 @@ def run_estimation(
     dataset_label: Optional[str] = None,
     output_dir: Optional[Union[Path, str]] = None,
     print_to_console: bool = True,
+    print_penalty_per_state: bool = True,
 ) -> EstimationResult:
     """Compute counts, conditional probabilities, and consistency checks.
 
@@ -84,6 +85,8 @@ def run_estimation(
         ``main.run_all``) nothing is written to disk.
     print_to_console : whether to echo the human-readable report to stdout.
         ``True`` in both run modes per the task spec.
+    print_penalty_per_state : include the per-state penalty table in the report.
+        ``main.run_all`` passes ``False`` and prints all runs together at the end.
 
     Returns
     -------
@@ -147,6 +150,21 @@ def run_estimation(
     penalty = (N_alpha_beta[1] / total_per_action).fillna(0.0)
     penalty.name = "c_k"
 
+    N_phi_alpha_beta = (
+        df.groupby([CLMN_PHI_SRC, CLMN_ALPHA, CLMN_BETA]).size()
+          .unstack(fill_value=0)
+          .reindex(columns=betas, fill_value=0)
+    )
+    totals_phi_alpha = N_phi_alpha_beta.sum(axis=1).replace(0, np.nan)
+    penalty_per_state = (
+        (N_phi_alpha_beta[1] / totals_phi_alpha)
+        .fillna(0.0)
+        .unstack(CLMN_ALPHA)
+        .reindex(index=states, columns=actions, fill_value=0.0)
+    )
+    penalty_per_state.index.name = CLMN_PHI_SRC
+    penalty_per_state.columns.name = CLMN_ALPHA
+
     empirical_penalty = (
         df.groupby(CLMN_ALPHA)[CLMN_BETA].mean().reindex(actions, fill_value=0.0)
     )
@@ -183,6 +201,7 @@ def run_estimation(
         policy=policy,
         transition=transition,
         penalty=penalty,
+        penalty_per_state=penalty_per_state,
         empirical_penalty=empirical_penalty,
         checks=checks,
         states=states,
@@ -219,6 +238,11 @@ def run_estimation(
     side_by_side = pd.concat([penalty, empirical_penalty], axis=1).round(6)
     lines.append(_fmt(side_by_side))
 
+    if print_penalty_per_state:
+        lines.append(_section("Task 6 — Model assumption check"))
+        lines.append("c_k(phi_i) = P(beta=1 | alpha_k, phi_i)")
+        lines.append(_fmt(penalty_per_state.round(6)))
+
     lines.append(_section("Consistency checks"))
     for name, ok in checks.items():
         lines.append(f"  [{'PASS' if ok else 'FAIL'}]  {name}")
@@ -242,6 +266,7 @@ def run_estimation(
         for a, T in transition.items():
             T.to_csv(out / f"transition__{a}.csv", encoding="utf-8")
         side_by_side.to_csv(out / "penalty.csv", encoding="utf-8")
+        penalty_per_state.to_csv(out / "penalty_per_state.csv", encoding="utf-8")
 
         (out / "report.txt").write_text(report, encoding="utf-8")
         if print_to_console:

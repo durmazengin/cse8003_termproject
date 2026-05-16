@@ -46,6 +46,7 @@ class EstimationResult:
     policy: pd.DataFrame                              # P(alpha_k | phi_i)
     transition: Dict[str, pd.DataFrame]               # P(phi_j | phi_i, alpha_k) per alpha
     penalty: pd.Series                                # c_k = P(beta=1 | alpha_k)
+    penalty_per_state: pd.DataFrame                   # c_k(phi_i) = P(beta=1 | alpha_k, phi_i)
     empirical_penalty: pd.Series                      # groupby(CLMN_ALPHA)[CLMN_BETA].mean()
     checks: Dict[str, bool]                           # named pass/fail flags
     states: list
