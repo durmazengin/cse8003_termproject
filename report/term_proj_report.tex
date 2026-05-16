@@ -37,9 +37,9 @@ from a unique dataset of state--action--feedback tuples generated in a P-model
 environment. We summarize the mathematical background for empirical counts and
 conditional estimates, the methodology for Tasks~1--4
 (estimation, optimal-action identification, $\varepsilon$-optimality, and
-simulation) in mathematical terms, and outline planned work for
-Tasks~5--6. Implementation scripts live under \texttt{../proj\_python/}; excerpts
-appear in Appendix~\ref{app:code}.
+simulation) in mathematical terms, Task~5 perturbation via \texttt{main.py}, and
+planned work for Task~6. Implementation scripts live under \texttt{../proj\_python/};
+excerpts appear in Appendix~\ref{app:code}.
 \end{abstract}
 
 \section{Introduction}
@@ -183,16 +183,20 @@ states, and \texttt{run\_simulation} loads the real CSV, compares marginals, and
 aggregates absolute differences (from line~246 onward in the source file).
 Appendix~\ref{app:simulation} shows lines~134--184.
 
-\subsection{Tasks 5--6 (planned)}
+\subsection{Task 5 --- Perturbation experiment}
 
-\begin{itemize}
-  \item \textbf{Task 5 (perturbation):} randomly remove 20\% of transitions
-        and re-estimate $c_k$, policy, and $\varepsilon$.
-  \item \textbf{Task 6 (model critique):} estimate $c_k$ separately per
-        source state and compare across states to assess the P-model assumption.
-\end{itemize}
-These will extend \texttt{load\_all()} with new modules mirroring the dual-run
-convention used for Tasks~1--4.
+\texttt{main.run\_all} always fits Tasks~1--4 on the \textbf{full} dataset (baseline).
+If \texttt{perturbation\_rate} $> 0$ (percent of rows to delete, e.g.\ 20 for 20\%),
+it repeats Tasks~1--4 on \texttt{experiment\_count} independent subsamples obtained by
+\texttt{\_drop\_rows\_randomly}: each trial draws that fraction of step rows uniformly at
+random from the CSV (policy, transition, and penalty counts all change together).
+Console output compares baseline vs.\ perturbed $\varepsilon$, $\alpha^\ast$, and
+simulation L1 metrics.
+
+\subsection{Task 6 (planned)}
+
+Estimate $c_k$ separately per source state and compare across states to assess the
+P-model assumption (not yet implemented).
 
 \section{Experiments}
 
@@ -210,12 +214,12 @@ per step; Greek state/action labels) is the default input for
         \texttt{cd ../proj\_python \&\& python e\_optimality\_analysis.py}
   \item Task~4 after Task~1 (and real CSV for marginals):
         \texttt{cd ../proj\_python \&\& python simulation.py}
-  \item End-to-end in memory (no intermediate files required):
+  \item End-to-end via \texttt{main.py} (\texttt{load\_all}: default CSV,
+        \texttt{perturbation\_rate=20}, \texttt{random\_seed=42}):
         \texttt{cd ../proj\_python \&\& python main.py}
 \end{enumerate}
 Planned extensions for the final report include the dataset fingerprint,
-full tables for Tasks~1--4, and (once implemented) perturbation analysis and
-per-state penalty comparison for the P-model critique.
+full numeric tables, and Task~6 per-state penalty comparison.
 
 \section{Conclusion}
 
@@ -224,8 +228,9 @@ Task~1 estimates to the count-based constructions in Section~\ref{sec:background
 Task~2 selects
 $\alpha^\ast$ by minimizing $c_k$; Task~3 quantifies $\varepsilon$-optimality
 via $\min_i P(\alpha^\ast\mid\phi_i)$ over visited states; Task~4 validates the
-generative model against data marginals. Remaining work covers perturbation
-robustness and critique of the P-model assumption.
+generative model against data marginals; Task~5 probes sensitivity by refitting
+after random row removal in \texttt{main.py}. Remaining work is Task~6 critique of
+the P-model assumption.
 
 \appendix
 \section[Supplementary source code]{Supplementary source code listing}\label{app:code}

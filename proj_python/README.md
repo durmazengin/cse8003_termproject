@@ -7,7 +7,7 @@ Open this folder in PyCharm. Interpreter: `D:\Documents\00-PhD\shared-venv`.
 - `util.py` — shared helpers: default CSV path, column name constants,
   `load_vsa_dataset()`, ``EstimationResult`` (Task~1), and ``OptimalActionResult`` (Task~2).
 - `main.py` — orchestrator: fingerprint, load CSV, **baseline** Tasks~1--4 on full data;
-  optional perturbed passes when ``--perturbation-rate > 0`` (Task~5).
+  optional perturbed passes when ``perturbation_rate > 0`` in ``run_all`` (Task~5).
 - `fingerprint.py` — **Dataset fingerprint (before modeling).** Row count,
   sequence count, mean sequence length, empirical penalty rate per action,
   and checksum $\sum \text{step}$.
@@ -30,8 +30,9 @@ Per the project convention, every task module supports both modes:
 
 - **Run the module directly** — writes a report + per-table CSVs under
   `./outputs/<task>/`, and also prints the report to the console.
-- **Imported by `main.run_all` only** — returns structured results in memory; task
-  reports print on the baseline pass when ``perturbation_rate=0``.
+- **Imported by `main.run_all` only** — returns structured results in memory.
+  Baseline task reports print when ``perturbation_rate=0``; perturbed passes run
+  quietly, then ``main`` prints per-run and aggregate summaries.
 
 ## Usage
 
@@ -54,19 +55,13 @@ python e_optimality_analysis.py
 # Task 4 alone — reads policy/transition/penalty from Task 1 outputs + real CSV for marginals
 python simulation.py
 
-# Baseline only — Tasks 1--4 on full data (default)
+# Orchestrator (see ``load_all()`` in ``main.py`` for configured values)
 python main.py
-
-# Task 5 — baseline + 20% row removal, 5 trials
-python main.py --perturbation-rate 20 --experiment-count 5
 ```
 
-Optional flags for **`main.py`**:
-
-- `--perturbation-rate PCT` — percent of rows removed per perturbed trial (default `0`).
-- `--experiment-count N` — perturbed trials when rate &gt; 0 (default `1`).
-- `--seed` — RNG seed (default `42`).
-- `--csv PATH` — dataset CSV.
+``load_all()`` calls ``run_all(DEFAULT_CSV, perturbation_rate=20, random_seed=42)``
+(baseline plus perturbed trials; ``experiment_count`` defaults to ``1`` inside
+``run_all`` unless you change ``load_all``).
 
 Other modules:
 

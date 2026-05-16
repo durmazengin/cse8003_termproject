@@ -8,12 +8,10 @@
 Run::
 
     python main.py
-    python main.py --perturbation-rate 20 --experiment-count 5
 """
 
 from __future__ import annotations
 
-import argparse
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +33,7 @@ def _section(title: str) -> str:
     return f"\n{bar}\n{title}\n{bar}"
 
 
-def _drop_random_rows(
+def _drop_rows_randomly(
     df: pd.DataFrame,
     fraction_remove: float,
     rng: np.random.Generator,
@@ -111,9 +109,9 @@ def _run_tasks_1_to_4(
     )
 
 
-def _print_summary_baseline(run: PipelineRunResult) -> None:
+def _print_run_results(run: PipelineRunResult) -> None:
     print("\n" + "=" * 72)
-    print("main: baseline — Tasks 1--4 finished")
+    print(f"main: {run.label} — Tasks 1--4 finished")
     print("=" * 72)
     print(f"  rows processed     : {run.n_rows}")
     print(f"  optimal action     : alpha* = {run.alpha_star}  (c* = {run.c_star:.6f})")
@@ -125,7 +123,7 @@ def _print_summary_baseline(run: PipelineRunResult) -> None:
     )
 
 
-def _print_summary_perturbation(
+def _print_experiments_summary(
     *,
     csv_path: Path,
     n_full: int,
@@ -171,11 +169,11 @@ def _print_summary_perturbation(
 
 
 def run_all(
-    csv_path: Union[Path, str] = DEFAULT_CSV,
+    csv_path: Union[Path, str],
     *,
-    perturbation_rate: float = 0.0,
+    perturbation_rate: float,
     experiment_count: int = 1,
-    random_seed: int = 42,
+    random_seed: int,
     print_to_console: bool = True,
 ) -> List[PipelineRunResult]:
     """Fingerprint, baseline Tasks 1--4 on full data, then optional perturbed passes.
@@ -221,6 +219,8 @@ def run_all(
     )
 
     show_task_reports = print_to_console and perturbation_rate == 0
+
+    # first run without perturbation
     baseline = _run_tasks_1_to_4(
         df_full,
         csv_path,
@@ -228,6 +228,8 @@ def run_all(
         print_to_console=show_task_reports,
     )
     results: List[PipelineRunResult] = [baseline]
+    if print_to_console:
+        _print_run_results(baseline)
 
     if perturbation_rate > 0:
         fraction = perturbation_rate / 100.0
@@ -235,20 +237,19 @@ def run_all(
         for t in range(experiment_count):
             trial_seed = int(rng_master.integers(0, 2**31 - 1))
             rng = np.random.default_rng(trial_seed)
-            df_p, n_removed = _drop_random_rows(df_full, fraction, rng)
-            run = _run_tasks_1_to_4(
+            df_p, n_removed = _drop_rows_randomly(df_full, fraction, rng)
+            perturbation_run = _run_tasks_1_to_4(
                 df_p,
                 csv_path,
                 dataset_label=f"{csv_path.name} (trial {t}, removed {n_removed})",
                 print_to_console=False,
             )
-            results.append(run)
+            if print_to_console:
+                _print_run_results(perturbation_run)
+            results.append(perturbation_run)
 
-    if print_to_console:
-        if perturbation_rate == 0:
-            _print_summary_baseline(baseline)
-        else:
-            _print_summary_perturbation(
+        if print_to_console:
+            _print_experiments_summary(
                 csv_path=csv_path,
                 n_full=len(df_full),
                 perturbation_rate=perturbation_rate,
@@ -260,34 +261,13 @@ def run_all(
     return results
 
 
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="VSA term-project orchestrator")
-    p.add_argument("--csv", type=Path, default=DEFAULT_CSV, help="Dataset CSV")
-    p.add_argument(
-        "--perturbation-rate",
-        type=float,
-        default=0.0,
-        metavar="PCT",
-        help="Percent of rows to remove per perturbed trial (0 = baseline only)",
-    )
-    p.add_argument(
-        "--experiment-count",
-        type=int,
-        default=1,
-        help="Perturbed trials when --perturbation-rate > 0 (default: %(default)s)",
-    )
-    p.add_argument("--seed", type=int, default=42, help="RNG seed for row removal")
-    return p.parse_args()
-
-
 def load_all() -> List[PipelineRunResult]:
-    """CLI entry: parse args and call :func:`run_all`."""
-    args = _parse_args()
+    """Entry point for ``python main.py`` — fixed run configuration."""
     return run_all(
-        args.csv,
-        perturbation_rate=args.perturbation_rate,
-        experiment_count=args.experiment_count,
-        random_seed=args.seed,
+        csv_path = DEFAULT_CSV,
+        perturbation_rate=20,
+        experiment_count=10,
+        random_seed=42,
     )
 
 
