@@ -551,48 +551,122 @@ Appendix~\ref{app:main} (lines~91--133, 302--346).
 
 \section{Experiments}\label{sec:experiments}
 
-All numbers below come from a single orchestrated run
-(\nolinkurl{python main.py} via \texttt{load\_all}: full dataset, 20\% random row
-removal, 10 perturbation trials, \texttt{random\_seed=42}). The complete console
-log is in Appendix~\ref{app:experiments}.
+This section reports the empirical evaluation of the inferred VSA on the course
+dataset (assignment Tasks~1--6).
+A single run of \texttt{main.py} (\texttt{load\_all}) fits the full log
+($n=3518$) and repeats Tasks~1--4 on ten subsamples with 20\% random row removal
+(\texttt{random\_seed=42}).
+Section~\ref{sec:eval-metrics} defines the metrics;
+Sections~\ref{sec:exp-results} and~\ref{sec:discussion} present and interpret the
+outcomes; the complete console trace is in Appendix~\ref{app:experiments}.
 
 \subsection{Evaluation metrics and methods}\label{sec:eval-metrics}
 
-\paragraph{Dataset and protocol.}
-Input: course dataset \texttt{Engin-vsa\_dataset\_full.csv} ($|R|=3518$ steps, $|S|=80$
-sequences, mean length $\bar{L}=43.98$). Each run loads the CSV once, prints the
-dataset fingerprint (Task~0), fits Tasks~1--4 on the full table (baseline), then
-optionally repeats Tasks~1--4 on ten subsamples with 704 rows ($\approx$20\%)
-removed uniformly at random without replacement.
+This subsection records how each assignment task is evaluated before the numerical
+results in Section~\ref{sec:exp-results}.
+Table~\ref{tab:eval-metrics} summarizes the evaluation metrics and criteria for
+assignment Tasks~1--6.
 
-\paragraph{Metrics by task.}
-\begin{itemize}[noitemsep]
-  \item \textbf{Fingerprint:} $|R|$, $|S|$, $\bar{L}$, empirical
-        $P(\beta{=}1\mid\alpha_k)$ per action, checksum $C=\sum_n \texttt{step}$.
-  \item \textbf{Task~1 (estimation):} raw counts $N(\phi_i,\alpha_k)$,
-        $N(\phi_i,\alpha_k,\phi_j)$, $N(\alpha_k,\beta)$; derived
-        $P(\alpha_k\mid\phi_i)$, $P(\phi_j\mid\phi_i,\alpha_k)$, global
-        $c_k=P(\beta{=}1\mid\alpha_k)$; normalization checks (Section~\ref{sec:estimators}).
-  \item \textbf{Task~2 (optimal action):} $\alpha^\ast\in\arg\min_k c_k$ and
-        $c_\ast=\min_k c_k$.
-  \item \textbf{Task~3 ($\varepsilon$-optimality):}
-        $\varepsilon=1-\min_{\phi_i\in\mathcal{V}} P(\alpha^\ast\mid\phi_i)$ over
-        visited states; spread $=\max_i P(\alpha^\ast\mid\phi_i)-\min_i P(\alpha^\ast\mid\phi_i)$.
-  \item \textbf{Task~4 (simulation):} synthetic trajectories with the learned
-        policy, transitions, and $\beta\sim\mathrm{Bernoulli}(c_{\alpha})$; report
-        $L_1$ gaps between data and simulated marginals (actions, $\phi_{\mathrm{src}}$,
-        $\phi_{\mathrm{dst}}$) and $|\bar\beta_{\mathrm{data}}-\bar\beta_{\mathrm{sim}}|$
-        per action.
-  \item \textbf{Task~5 (perturbation):} stability of $\alpha^\ast$, $\varepsilon$,
-        and simulation $L_1$ (actions) across trials; mean/std of $\varepsilon$ vs.\
-        baseline.
-  \item \textbf{Task~6 (model check):} per-state penalties $c_k(\phi_i)$; spread
-        $\max_{\phi_i} c_k(\phi_i)-\min_{\phi_i} c_k(\phi_i)$ per action; maximum
-        absolute cell change $|\hat c_k(\phi_i)-\hat c_k^{\mathrm{base}}(\phi_i)|$
-        vs.\ baseline.
-\end{itemize}
+\begin{table}[htbp]
+  \centering
+  \caption{Evaluation metrics and evaluation criteria (assignment Tasks~1--6).}
+  \label{tab:eval-metrics}
+  \small
+  \begin{tabularx}{\linewidth}{@{}c
+      >{\raggedright\arraybackslash}p{2.55cm}
+      >{\raggedright\arraybackslash}X@{}}
+    \hline
+    Task & Metric & How evaluated \\
+    \hline
+    1 & Raw counts &
+    Report $N(\phi_i,\alpha_k)$, $N(\phi_i,\alpha_k,\phi_j)$, $N(\alpha_k,\beta)$
+    by counting matching rows (Section~\ref{sec:estimators}). \\
+    \hline
+    1 & Policy &
+    $P(\alpha_k\mid\phi_i)=N(\phi_i,\alpha_k)/r_i$ for $r_i>0$. \\
+    \hline
+    1 & Transition model &
+    $P(\phi_j\mid\phi_i,\alpha_k)$: normalize each row of $N(\phi_i,\alpha_k,\phi_j)$
+    over $\phi_j$. \\
+    \hline
+    1 & Global penalty &
+    $c_k=P(\beta{=}1\mid\alpha_k)=N(\alpha_k,1)/\bigl(N(\alpha_k,0)+N(\alpha_k,1)\bigr)$. \\
+    \hline
+    1 & Consistency check (policy) &
+    For each visited $\phi_i$ ($r_i>0$): verify $\sum_k P(\alpha_k\mid\phi_i)=1$
+    (PASS/FAIL). \\
+    \hline
+    1 & Consistency check (transition) &
+    For each $(\phi_i,\alpha_k)$ with transition mass: verify
+    $\sum_j P(\phi_j\mid\phi_i,\alpha_k)=1$ (PASS/FAIL). \\
+    \hline
+    1 & Consistency check (penalty) &
+    Verify computed $c_k$ equals the empirical fraction of $\beta{=}1$ among rows
+    with action $\alpha_k$ (PASS/FAIL). \\
+    \hline
+    2 & Optimal action &
+    $\alpha^\ast\in\arg\min_k c_k$; if several actions tie at the minimum, report the
+    first in sorted action order. \\
+    \hline
+    2 & Minimal penalty &
+    $c_\ast=\min_k c_k$. \\
+    \hline
+    3 & $\varepsilon$-optimality gap &
+    $\varepsilon=1-\min_{\phi_i\in\mathcal{V}} P(\alpha^\ast\mid\phi_i)$ with
+    $\mathcal{V}=\{\phi_i : r_i>0\}$ (never-visited states excluded). \\
+    \hline
+    3 & Interpretation &
+    Answer the assignment prompts (strong optimality, noise, cross-state consistency)
+    from $\varepsilon$ and the spread of $P(\alpha^\ast\mid\phi_i)$ on $\mathcal{V}$. \\
+    \hline
+    4 & Synthetic data &
+    Generate sequences with the learned policy and transitions; sample
+    $\beta\sim\mathrm{Bernoulli}(c_\alpha)$; match real row count (fixed seed). \\
+    \hline
+    4 & Action distribution &
+    $|P_{\mathrm{data}}(\alpha)-P_{\mathrm{sim}}(\alpha)|$ per action; report
+    $L_1^{\mathrm{act}}=\sum_\alpha |\cdot|$. \\
+    \hline
+    4 & State visitation &
+    $|P_{\mathrm{data}}(\phi)-P_{\mathrm{sim}}(\phi)|$ for $\phi_{\mathrm{src}}$ and
+    $\phi_{\mathrm{dst}}$ marginals; report $L_1$ sum over states for each. \\
+    \hline
+    4 & Penalty rates &
+    $|\bar\beta_{\mathrm{data}}-\bar\beta_{\mathrm{sim}}|$ globally and per action
+    ($\bar\beta$ = sample mean of $\beta$). \\
+    \hline
+    5 & Perturbed refit &
+    Remove $\approx$20\% of rows at random; recompute $c_k$, policy, and $\varepsilon$
+    (Tasks~1--3) on each subsample. \\
+    \hline
+    5 & Stability &
+    Compare $\alpha^\ast$, $\{c_k\}$, $\varepsilon$, and simulation $L_1^{\mathrm{act}}$
+    to baseline; summarize range, mean, and std across trials. \\
+    \hline
+    6 & Per-state penalty &
+    $c_k(\phi_i)=P(\beta{=}1\mid\alpha_k,\phi_i)$ from counts with
+    $N(\phi_i,\alpha_k)>0$ (Section~\ref{sec:estimators}). \\
+    \hline
+    6 & Cross-state comparison &
+    For each $k$, spread $=\max_{\phi_i} c_k(\phi_i)-\min_{\phi_i} c_k(\phi_i)$;
+    inspect full $c_k(\phi_i)$ table to assess whether penalties depend on state. \\
+    \hline
+  \end{tabularx}
+\end{table}
+
+Input: \texttt{Engin-vsa\_dataset\_full.csv} ($|R|=3518$, $|S|=80$, $\bar{L}=43.98$).
+One orchestrated run (\texttt{python main.py}) validates the fingerprint, fits Tasks~1--4
+on the full table (baseline), then refits on ten subsamples with 704 rows
+($\approx$20\%) removed uniformly at random without replacement
+(\texttt{random\_seed=42}). Count and probability formulas are in
+Section~\ref{sec:estimators}; code mapping is in Section~\ref{sec:methodology}.
 
 \subsection{Experimental results}\label{sec:exp-results}
+
+Tables~\ref{tab:baseline-metrics}--\ref{tab:perturb-summary} collect the main
+numerics; Figures~\ref{fig:ck-baseline}--\ref{fig:spread-task6} visualize them.
+Per-trial count matrices and full Task~1--4 printouts are omitted here
+(Appendix~\ref{app:experiments}).
 
 \paragraph{Baseline (full data).}
 Fingerprint checksum $C=83035$ matches the assignment reference. Global penalties
@@ -612,13 +686,6 @@ $[0.351,0.394]$. Action-marginal simulation error stays small
 grow slightly under subsampling (e.g.\ $\alpha_2$: baseline spread $0.100$ vs.\
 perturbed mean $0.121$), and the largest per-cell shift in $c_k(\phi_i)$ reaches
 $0.094$ (mean $0.052$ over trials).
-
-\subsection{Experimental details}\label{sec:exp-details}
-
-Tables~\ref{tab:baseline-metrics}--\ref{tab:perturb-summary} collect the main
-numerics; Figures~\ref{fig:ck-baseline}--\ref{fig:spread-task6} visualize them.
-Per-trial count matrices and full Task~1--4 printouts are omitted here
-(Appendix~\ref{app:experiments}).
 
 \begin{figure}[H]
   \centering
