@@ -218,14 +218,12 @@ def run_all(
         print_to_console=print_to_console,
     )
 
-    show_task_reports = print_to_console and perturbation_rate == 0
-
     # first run without perturbation
     baseline = _run_tasks_1_to_4(
         df_full,
         csv_path,
         dataset_label=f"{csv_path.name} (baseline)",
-        print_to_console=show_task_reports,
+        print_to_console=print_to_console,
     )
     results: List[PipelineRunResult] = [baseline]
     if print_to_console:
@@ -242,7 +240,7 @@ def run_all(
                 df_p,
                 csv_path,
                 dataset_label=f"{csv_path.name} (trial {t}, removed {n_removed})",
-                print_to_console=False,
+                print_to_console=print_to_console,
             )
             if print_to_console:
                 _print_run_results(perturbation_run)
