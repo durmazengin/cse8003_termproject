@@ -1,102 +1,295 @@
 """Orchestrator for the VSA term-project tasks.
 
-Each task lives in its own module and exposes a single ``run_*`` entry
-point that returns a structured result and prints to the console. This
-script wires them together; the dataset fingerprint runs first, then
-Tasks~1--4 (and later tasks) consume the loaded CSV or prior results.
+1. Dataset fingerprint
+2. Load CSV into a DataFrame
+3. Tasks 1--4 on full data (baseline), always
+4. If ``perturbation_rate`` > 0: additional Tasks 1--4 passes on row-subsampled data
 
-Run:
-    python main.py [--csv PATH]
+Run::
 
-Entry point: ``load_all()`` wires fingerprint, Tasks~1--4 (and later tasks).
+    python main.py
+    python main.py --perturbation-rate 20 --experiment-count 5
 """
 
 from __future__ import annotations
 
 import argparse
+import warnings
+from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Tuple, Union
 
-from util import DEFAULT_CSV
+import numpy as np
+import pandas as pd
+
+from e_optimality_analysis import run_epsilon_optimality
 from estimation import run_estimation
 from fingerprint import run_fingerprint
 from optimal_action_identification import run_optimal_action
-from e_optimality_analysis import run_epsilon_optimality
 from simulation import run_simulation
+from util import DEFAULT_CSV, load_vsa_dataset
 
 
-def load_all() -> None:
-    parser = argparse.ArgumentParser(description="VSA term-project orchestrator")
-    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV,
-                        help="Path to the dataset CSV (default: %(default)s)")
-    args = parser.parse_args()
+def _section(title: str) -> str:
+    bar = "=" * 72
+    return f"\n{bar}\n{title}\n{bar}"
 
-    # Dataset fingerprint (before modeling)
-    fp = run_fingerprint(
-        args.csv,
-        output_dir=None,
-        print_to_console=True,
-    )
 
-    # Task 1 - Estimation
-    # When invoked from load_all() we do NOT pass an output_dir, so estimation.py
-    # returns its result object instead of writing files. The console report
-    # is still printed by run_estimation itself.
+def _drop_random_rows(
+    df: pd.DataFrame,
+    fraction_remove: float,
+    rng: np.random.Generator,
+) -> Tuple[pd.DataFrame, int]:
+    """Return a copy of ``df`` with ``round(fraction_remove * n)`` rows removed."""
+    n = len(df)
+    if n <= 1 or fraction_remove <= 0.0:
+        return df.copy(), 0
+    n_remove = int(round(fraction_remove * n))
+    n_remove = min(max(0, n_remove), n - 1)
+    if n_remove <= 0:
+        return df.copy(), 0
+    drop_positions = rng.choice(n, size=n_remove, replace=False)
+    out = df.drop(df.index[drop_positions]).reset_index(drop=True)
+    return out, n_remove
+
+
+@dataclass
+class PipelineRunResult:
+    """Metrics from one pass of Tasks 1--4 on a given DataFrame."""
+
+    label: str
+    n_rows: int
+    alpha_star: str
+    c_star: float
+    epsilon: float
+    min_p_alpha_star: float
+    l1_action: float
+    l1_phi_src: float
+    l1_phi_dst: float
+
+
+def _run_tasks_1_to_4(
+    df: pd.DataFrame,
+    csv_path: Path,
+    *,
+    dataset_label: str,
+    print_to_console: bool,
+) -> PipelineRunResult:
     estimation = run_estimation(
-        args.csv,
+        df,
+        dataset_label=dataset_label,
         output_dir=None,
-        print_to_console=True,
+        print_to_console=print_to_console,
     )
-
-    # Task 2 - Optimal Action Identification
-    # load_all() forwards estimation's return value directly; no disk I/O here.
-    # optimal_action_identification.py still prints its report to the console.
     optimal = run_optimal_action(
         estimation=estimation,
         output_dir=None,
-        print_to_console=True,
+        print_to_console=print_to_console,
     )
-
-    # Task 3 — ε-optimality
     epsilon_res = run_epsilon_optimality(
         estimation=estimation,
         optimal=optimal,
         output_dir=None,
-        print_to_console=True,
+        print_to_console=print_to_console,
     )
-
-    # Task 4 — Simulation
     sim_res = run_simulation(
         estimation=estimation,
-        csv_path=args.csv,
+        csv_path=csv_path,
         output_dir=None,
-        print_to_console=True,
+        print_to_console=print_to_console,
+    )
+    return PipelineRunResult(
+        label=dataset_label,
+        n_rows=len(df),
+        alpha_star=optimal.alpha_star,
+        c_star=optimal.c_star,
+        epsilon=epsilon_res.epsilon,
+        min_p_alpha_star=epsilon_res.min_p_alpha_star,
+        l1_action=sim_res.l1_action,
+        l1_phi_src=sim_res.l1_phi_src,
+        l1_phi_dst=sim_res.l1_phi_dst,
     )
 
-    # Downstream tasks will consume `estimation`, `optimal`, `epsilon_res`, and `sim_res`:
-    # task5 = run_perturbation(args.csv)
-    # task6 = run_model_check(args.csv, estimation)
 
+def _print_summary_baseline(run: PipelineRunResult) -> None:
     print("\n" + "=" * 72)
-    print("load_all(): tasks finished")
+    print("main: baseline — Tasks 1--4 finished")
     print("=" * 72)
-    print(f"  rows processed     : {estimation.n_rows}")
-    print(f"  policy matrix      : {estimation.policy.shape[0]}x{estimation.policy.shape[1]}")
-    print(f"  transition tables  : {len(estimation.transition)} (one per action)")
-    print(f"  consistency checks : "
-          f"{sum(estimation.checks.values())}/{len(estimation.checks)} passed")
-    print(f"  fingerprint checksum : {fp.checksum}")
-    print(f"  sequences / mean len : {fp.n_sequences} / {fp.mean_sequence_length:.4f}")
-    print(f"  optimal action     : alpha* = {optimal.alpha_star}  "
-          f"(c_star = {optimal.c_star:.6f})")
-    print(f"  epsilon (Task 3)   : ε = {epsilon_res.epsilon:.6f}  "
-          f"(min P(α*|φ) = {epsilon_res.min_p_alpha_star:.6f})")
+    print(f"  rows processed     : {run.n_rows}")
+    print(f"  optimal action     : alpha* = {run.alpha_star}  (c* = {run.c_star:.6f})")
+    print(f"  epsilon (Task 3)   : ε = {run.epsilon:.6f}  "
+          f"(min P(α*|φ) = {run.min_p_alpha_star:.6f})")
     print(
-        "  simulation L1      : actions="
-        f"{sim_res.l1_action:.4f}  phi_src={sim_res.l1_phi_src:.4f}  "
-        f"phi_dst={sim_res.l1_phi_dst:.4f}  |Δpen|/act="
-        f"{sim_res.l1_penalty_per_action:.4f}  |Δpen|_global="
-        f"{sim_res.abs_diff_penalty_global:.4f}"
+        f"  simulation L1      : actions={run.l1_action:.4f}  "
+        f"phi_src={run.l1_phi_src:.4f}  phi_dst={run.l1_phi_dst:.4f}"
     )
+
+
+def _print_summary_perturbation(
+    *,
+    csv_path: Path,
+    n_full: int,
+    perturbation_rate: float,
+    experiment_count: int,
+    baseline: PipelineRunResult,
+    perturbed: List[PipelineRunResult],
+) -> None:
+    epsilons = np.array([r.epsilon for r in perturbed], dtype=float)
+    lines = [
+        _section(
+            f"Task 5 — Perturbation "
+            f"({perturbation_rate:.0f}% rows removed, {experiment_count} trial(s))"
+        ),
+        f"Dataset : {csv_path.resolve()}",
+        f"Rows    : {n_full} full",
+        "",
+        "Baseline (full data, Tasks 1--4)",
+        f"  alpha* = {baseline.alpha_star}   c* = {baseline.c_star:.6f}",
+        f"  epsilon = {baseline.epsilon:.6f}",
+        "",
+        "Perturbed runs",
+    ]
+    for r in perturbed:
+        lines.append(
+            f"  {r.label}:  alpha*={r.alpha_star}  epsilon={r.epsilon:.6f}  "
+            f"L1_act={r.l1_action:.4f}"
+        )
+    if len(perturbed) > 1:
+        lines.extend(
+            [
+                "",
+                f"  epsilon mean={epsilons.mean():.6f}  std={epsilons.std(ddof=1):.6f}  "
+                f"delta_mean_vs_baseline={epsilons.mean() - baseline.epsilon:+.6f}",
+            ]
+        )
+    elif len(perturbed) == 1:
+        lines.append(
+            f"\n  delta_epsilon (perturbed - baseline) = "
+            f"{perturbed[0].epsilon - baseline.epsilon:+.6f}"
+        )
+    print("\n".join(lines))
+
+
+def run_all(
+    csv_path: Union[Path, str] = DEFAULT_CSV,
+    *,
+    perturbation_rate: float = 0.0,
+    experiment_count: int = 1,
+    random_seed: int = 42,
+    print_to_console: bool = True,
+) -> List[PipelineRunResult]:
+    """Fingerprint, baseline Tasks 1--4 on full data, then optional perturbed passes.
+
+    Parameters
+    ----------
+    csv_path
+        Path to the VSA interaction CSV.
+    perturbation_rate
+        Percent of rows to remove at random before each perturbed pass (0--99).
+        ``0``: baseline only. ``20``: baseline plus ``experiment_count`` trials
+        with 20% of rows removed.
+    experiment_count
+        Number of perturbed passes when ``perturbation_rate > 0``.
+    random_seed
+        Base RNG seed for row removal.
+    print_to_console
+        Whether to print fingerprint, per-task reports (baseline only when rate is 0),
+        and the final summary.
+
+    Returns
+    -------
+    list of PipelineRunResult
+        ``[baseline, ...perturbed_trials]``.
+    """
+    if perturbation_rate < 0 or perturbation_rate >= 100:
+        raise ValueError("perturbation_rate must be in [0, 100).")
+    if experiment_count < 1:
+        raise ValueError("experiment_count must be >= 1.")
+    if perturbation_rate == 0 and experiment_count != 1:
+        warnings.warn(
+            "experiment_count is ignored when perturbation_rate is 0.",
+            stacklevel=2,
+        )
+
+    csv_path = Path(csv_path)
+    df_full = load_vsa_dataset(csv_path)
+
+    run_fingerprint(
+        csv_path,
+        output_dir=None,
+        print_to_console=print_to_console,
+    )
+
+    show_task_reports = print_to_console and perturbation_rate == 0
+    baseline = _run_tasks_1_to_4(
+        df_full,
+        csv_path,
+        dataset_label=f"{csv_path.name} (baseline)",
+        print_to_console=show_task_reports,
+    )
+    results: List[PipelineRunResult] = [baseline]
+
+    if perturbation_rate > 0:
+        fraction = perturbation_rate / 100.0
+        rng_master = np.random.default_rng(random_seed)
+        for t in range(experiment_count):
+            trial_seed = int(rng_master.integers(0, 2**31 - 1))
+            rng = np.random.default_rng(trial_seed)
+            df_p, n_removed = _drop_random_rows(df_full, fraction, rng)
+            run = _run_tasks_1_to_4(
+                df_p,
+                csv_path,
+                dataset_label=f"{csv_path.name} (trial {t}, removed {n_removed})",
+                print_to_console=False,
+            )
+            results.append(run)
+
+    if print_to_console:
+        if perturbation_rate == 0:
+            _print_summary_baseline(baseline)
+        else:
+            _print_summary_perturbation(
+                csv_path=csv_path,
+                n_full=len(df_full),
+                perturbation_rate=perturbation_rate,
+                experiment_count=experiment_count,
+                baseline=baseline,
+                perturbed=results[1:],
+            )
+
+    return results
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="VSA term-project orchestrator")
+    p.add_argument("--csv", type=Path, default=DEFAULT_CSV, help="Dataset CSV")
+    p.add_argument(
+        "--perturbation-rate",
+        type=float,
+        default=0.0,
+        metavar="PCT",
+        help="Percent of rows to remove per perturbed trial (0 = baseline only)",
+    )
+    p.add_argument(
+        "--experiment-count",
+        type=int,
+        default=1,
+        help="Perturbed trials when --perturbation-rate > 0 (default: %(default)s)",
+    )
+    p.add_argument("--seed", type=int, default=42, help="RNG seed for row removal")
+    return p.parse_args()
+
+
+def load_all() -> List[PipelineRunResult]:
+    """CLI entry: parse args and call :func:`run_all`."""
+    args = _parse_args()
+    return run_all(
+        args.csv,
+        perturbation_rate=args.perturbation_rate,
+        experiment_count=args.experiment_count,
+        random_seed=args.seed,
+    )
+
 
 if __name__ == "__main__":
     load_all()

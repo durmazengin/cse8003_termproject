@@ -17,7 +17,7 @@ Direct (reads ``policy.csv`` and ``N_phi_alpha.csv`` from Task 1 output dir,
 
     python e_optimality_analysis.py [--policy-dir DIR] [--optimal-dir DIR] [--out DIR]
 
-Imported by ``load_all()`` (receives ``EstimationResult`` and
+Imported by ``main.run_all`` (receives ``EstimationResult`` and
 ``OptimalActionResult`` in memory; no disk read for those; also prints):
 
     from e_optimality_analysis import run_epsilon_optimality
@@ -171,7 +171,7 @@ def run_epsilon_optimality(
 ) -> EpsilonOptimalityResult:
     """Compute ε = 1 − min_i P(α*|φ_i) over visited states.
 
-    When ``estimation`` and ``optimal`` are provided (``load_all()`` path),
+    When ``estimation`` and ``optimal`` are provided (``main.run_all`` path),
     policy and counts come from memory. Otherwise files are read from
     ``policy_dir`` (default: Task 1 output) and ``optimal_dir`` (default: Task 2
     output).

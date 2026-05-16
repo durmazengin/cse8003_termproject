@@ -19,7 +19,7 @@ under ``./outputs/task4_simulation/``; also prints):
 
     python simulation.py [--csv PATH] [--policy-dir DIR] [--out DIR]
 
-Imported by ``load_all()`` (passes ``EstimationResult`` in memory; still loads
+Imported by ``main.run_all`` (passes ``EstimationResult`` in memory; still loads
 the real CSV from ``csv_path`` for empirical marginals; also prints):
 
     from simulation import run_simulation
@@ -223,7 +223,7 @@ def run_simulation(
     Parameters
     ----------
     estimation
-        Task~1 result from ``load_all()``; if ``None``, load model matrices from
+        Task~1 result from ``main.run_all``; if ``None``, load model matrices from
         ``policy_dir``.
     csv_path
         Real dataset CSV for empirical marginals (defaults to ``util.DEFAULT_CSV``).

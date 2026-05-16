@@ -16,7 +16,7 @@ Direct (writes ``report.txt`` and CSV summaries under
 
     python fingerprint.py [--csv PATH] [--out DIR]
 
-Imported by ``main.py`` (returns the result object, also prints to the console):
+Imported by ``main`` (returns the result object, also prints to the console):
 
     from fingerprint import run_fingerprint
     result = run_fingerprint(csv_path)
@@ -77,7 +77,7 @@ def run_fingerprint(
     output_dir
         If set, write ``report.txt``, ``fingerprint_summary.csv``, and
         ``penalty_rate_per_action.csv`` under this directory. ``None`` when
-        called from ``main.py`` (no files written).
+        called from ``main.run_all`` (no files written).
     print_to_console
         Echo the human-readable report to stdout (``True`` in both modes).
     """

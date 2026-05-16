@@ -15,7 +15,7 @@ to the console):
 
     python optimal_action_identification.py [--input DIR] [--out DIR]
 
-Imported by main.py (receives the ``EstimationResult`` returned by
+Imported by ``main`` (receives the ``EstimationResult`` returned by
 ``run_estimation``, returns the optimal-action result, also prints to
 the console):
 
@@ -78,14 +78,14 @@ def run_optimal_action(
     Parameters
     ----------
     estimation : ``EstimationResult`` returned by ``run_estimation``.
-        Passed by ``main.py``. When ``None`` (direct-run mode), ``c_k`` is
+        Passed by ``main.run_all``. When ``None`` (direct-run mode), ``c_k`` is
         read from ``<input_dir>/penalty.csv`` instead.
     input_dir : directory containing Task 1's output files. Only used
         when ``estimation`` is ``None``. Defaults to
         ``./outputs/task1_estimation/``.
     output_dir : if given, also write ``ranking.csv``,
         ``alpha_star.csv`` and ``report.txt`` here. When ``None``
-        (the path used by ``main.py``) nothing is written to disk.
+        (the path used by ``main.run_all``) nothing is written to disk.
     print_to_console : whether to echo the human-readable report. ``True``
         in both modes per the task spec.
 

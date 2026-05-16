@@ -22,7 +22,7 @@ to the console):
 Imported by main.py (returns the result object, also prints to the console):
 
     from estimation import run_estimation
-    result = run_estimation(csv_path)
+    result = run_estimation(dataframe)
 """
 
 from __future__ import annotations
@@ -39,8 +39,6 @@ from util import (
     CLMN_BETA,
     CLMN_PHI_DST,
     CLMN_PHI_SRC,
-    CLMN_SEQ_ID,
-    CLMN_STEP,
     DEFAULT_CSV,
     EstimationResult,
     HERE,
@@ -65,8 +63,9 @@ def _fmt(obj) -> str:
 
 
 def run_estimation(
-    csv_path: Union[Path, str] = DEFAULT_CSV, # "Engin-vsa_dataset_full.csv"
+    dataframe: pd.DataFrame,
     *,
+    dataset_label: Optional[str] = None,
     output_dir: Optional[Union[Path, str]] = None,
     print_to_console: bool = True,
 ) -> EstimationResult:
@@ -74,10 +73,15 @@ def run_estimation(
 
     Parameters
     ----------
-    csv_path : path to the VSA dataset CSV (headerless, UTF-8).
+    dataframe
+        Interaction-sequence data (same columns as ``load_vsa_dataset``).
+        ``main.run_all`` (or ``__main__`` here) loads the CSV and passes the frame.
+    dataset_label
+        Short name for the report header (e.g. CSV filename). Defaults to
+        ``n=<row count> rows``.
     output_dir : if given, also write per-table CSVs and a ``report.txt``
         summary to this directory. When ``None`` (the default, used by
-        ``main.py``) nothing is written to disk.
+        ``main.run_all``) nothing is written to disk.
     print_to_console : whether to echo the human-readable report to stdout.
         ``True`` in both run modes per the task spec.
 
@@ -86,8 +90,9 @@ def run_estimation(
     EstimationResult
         Counts, probabilities, penalty vector, and a dict of check flags.
     """
-    csv_path = Path(csv_path)
-    df = load_vsa_dataset(csv_path) # load from file that each line is "1,1,φ1,φ2,α1,1" format
+    df = dataframe.copy()
+    if dataset_label is None:
+        dataset_label = f"n={len(df)} rows"
 
     states = sorted(set(df[CLMN_PHI_SRC].unique()) | set(df[CLMN_PHI_DST].unique()))
     actions = sorted(df[CLMN_ALPHA].unique())
@@ -187,7 +192,7 @@ def run_estimation(
 
     # Human-readable report --------------------------------------------
     lines: list[str] = []
-    lines.append(_section(f"Task 1 - Estimation   (dataset: {csv_path.name})"))
+    lines.append(_section(f"Task 1 - Estimation   (dataset: {dataset_label})"))
     lines.append(f"Rows in dataset : {len(df)}")
     lines.append(f"States observed : {states}")
     lines.append(f"Actions observed: {actions}")
@@ -256,4 +261,10 @@ def _parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = _parse_args()
-    run_estimation(args.csv, output_dir=args.out, print_to_console=True)
+    df = load_vsa_dataset(args.csv)
+    run_estimation(
+        df,
+        dataset_label=Path(args.csv).name,
+        output_dir=args.out,
+        print_to_console=True,
+    )

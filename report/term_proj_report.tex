@@ -98,7 +98,7 @@ count tables.
 \section{Methodology}\label{sec:methodology}
 
 All runnable code lives in \texttt{../proj\_python/}.
-\texttt{load\_all()} in \texttt{main.py} orchestrates tasks (calling the
+\texttt{run\_all()} in \texttt{main.py} orchestrates tasks (calling the
 \texttt{run\_*} entry points above); each task module can be run standalone
 (writing outputs under \texttt{outputs/}) or imported (returning structured
 results while still printing to the console).
@@ -134,7 +134,7 @@ Under the P-model, the optimal action minimizes the penalty probability:
   \qquad c_k = P(\beta=1\mid\alpha_k).
 \end{equation}
 The implementation reads $c_k$ from the in-memory \texttt{EstimationResult}
-when called from \texttt{main.py}, or from \texttt{penalty.csv} after a
+when called from \texttt{main.run\_all}, or from \texttt{penalty.csv} after a
 standalone Task~1 run. Ties at the minimum are resolved deterministically
 (first label in sorted order). Computationally,
 $\alpha^\ast = \arg\min_k c_k$ among the empirical $c_k$ from Task~1.
