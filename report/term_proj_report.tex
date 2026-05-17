@@ -155,29 +155,10 @@ sequences only, four objects required by the assignment:
 The environment is a \textbf{P-model}: feedback $\beta\in\{0,1\}$ indicates a
 favorable ($0$) or unfavorable ($1$) response. The working assumption is that
 the \emph{global} penalty $c_k=P(\beta{=}1\mid\alpha_k)$ depends on the action
-but not explicitly on the source state---so one penalty vector suffices for
-Tasks~1--5. Task~6 examines whether that assumption is consistent with the data
-when penalties are estimated separately in each state.
-
-\subsection{Approach used in this project}\label{sec:approach}
-
-The implementation is \textbf{purely data-driven}: every quantity is an empirical
-frequency or a ratio of counts from the provided CSV, followed by row-wise
-normalization where conditional distributions are required. We do not fit
-parametric models, run gradient-based learning, or impose structure beyond what
-the counts support. Consistency checks (policy rows and transition rows sum to
-one; global $c_k$ matches the sample mean of $\beta$ given $\alpha$) validate
-the arithmetic.
-
-The six assignment tasks form a pipeline: a \textbf{dataset fingerprint}
-(Section~\ref{sec:estimators}) validates scale and raw penalty rates; \textbf{estimation}
-builds counts and conditional probabilities; \textbf{optimal-action} and
-\textbf{$\varepsilon$-optimality} analyses use the policy and global penalties;
-\textbf{simulation} draws synthetic trajectories from the learned model and
-compares marginals to the real data; \textbf{perturbation} randomly deletes rows
-and refits to test robustness; \textbf{model critique} compares per-state
-penalties $c_k(\phi_i)$ across $\phi_i$ to assess the P-model. Section~\ref{sec:methodology}
-maps each step to code; Appendix~\ref{app:code} lists the corresponding excerpts.
+but not explicitly on the source state---so a single global penalty vector
+$c_k$ is often used for ranking actions and simulation. Estimating
+$c_k(\phi_i)$ separately in each state allows one to test whether penalties
+depend on $\phi_i$ beyond the action label.
 
 \subsection{Empirical estimators}\label{sec:estimators}
 
@@ -187,7 +168,7 @@ of distinct \texttt{sequence\_id} values. For a fixed sequence $s\in S$,
 $J_s$ is how many rows belong to $s$ (that sequence's length in steps).
 
 \paragraph{Dataset fingerprint.}
-Before modeling, the assignment requires five summaries of the raw table:
+Before modeling, the raw log is summarized by five quantities:
 \begin{itemize}[noitemsep]
   \item \textbf{Total number of rows} $|R|$ (one per step in the file).
   \item \textbf{Number of sequences} $|S|$ (distinct \texttt{sequence\_id}).
@@ -207,9 +188,9 @@ On the full dataset, each per-action rate above equals the global penalty
 $c_k$ used in estimation (both are the sample mean of $\beta$ given $\alpha_k$).
 
 \paragraph{Raw counts.}
-The assignment requires these three tables \emph{before} any probabilities are
-reported: they are the empirical basis for the policy $P(\alpha_k\mid\phi_i)$,
-the transitions $P(\phi_j\mid\phi_i,\alpha_k)$, and the penalties $c_k$.
+Probabilities are derived from three count tables: the empirical basis for
+the policy $P(\alpha_k\mid\phi_i)$, the transitions $P(\phi_j\mid\phi_i,\alpha_k)$,
+and the penalties $c_k$.
 Each entry counts how many rows $n\in R$ match a pattern on
 \texttt{phi\_src}, \texttt{phi\_dst}, \texttt{alpha}, and \texttt{beta}
 (written $\Phi_{\mathrm{src}}(n)$, $\Phi_{\mathrm{dst}}(n)$, $\alpha(n)$,
@@ -239,7 +220,7 @@ $\beta(n)$ below).
 \noindent Write $r_i=\sum_k N(\phi_i,\alpha_k)$ for the row total over actions in
 state $\phi_i$.
 
-\paragraph{Conditional estimates (Tasks 1--4).}
+\paragraph{Conditional estimates.}
 For visited states ($r_i>0$),
 \begin{equation}
   P(\alpha_k\mid\phi_i) = \frac{N(\phi_i,\alpha_k)}{r_i}.
@@ -251,14 +232,16 @@ $N(\phi_i,\alpha_k,\phi_j)$ over $\phi_j$ (empty rows yield zeros). The
   c_k = P(\beta{=}1\mid\alpha_k)
   = \frac{N(\alpha_k,1)}{N(\alpha_k,0)+N(\alpha_k,1)}.
 \end{equation}
-Task~2 sets $\alpha^\ast\in\arg\min_k c_k$. Task~3 uses visited states
-$\mathcal{V}=\{\phi_i : r_i>0\}$ and
+The action with lowest global penalty is
+$\alpha^\ast\in\arg\min_k c_k$. On visited states
+$\mathcal{V}=\{\phi_i : r_i>0\}$, the $\varepsilon$-optimality gap is
 $\varepsilon = 1 - \min_{\phi_i\in\mathcal{V}} P(\alpha^\ast\mid\phi_i)$.
-Task~4 samples $\alpha\sim P(\cdot\mid\phi)$, $\phi'\sim P(\cdot\mid\phi,\alpha)$,
-and $\beta\sim\mathrm{Bernoulli}(c_\alpha)$ along each real sequence length.
+To simulate trajectories, sample
+$\alpha\sim P(\cdot\mid\phi)$, $\phi'\sim P(\cdot\mid\phi,\alpha)$, and
+$\beta\sim\mathrm{Bernoulli}(c_\alpha)$ along each real sequence length.
 
-\paragraph{Per-state penalties (Task 6).}
-To test action-only penalties, for each pair $(\phi_i,\alpha_k)$ with
+\paragraph{Per-state penalties.}
+To relax the action-only penalty assumption, for each pair $(\phi_i,\alpha_k)$ with
 $N(\phi_i,\alpha_k)>0$,
 \begin{equation}
   c_k(\phi_i) = P(\beta{=}1\mid\alpha_k,\phi_i)
@@ -384,6 +367,26 @@ Algorithm~\ref{alg:flow} states the same logic in pseudocode.
   \label{fig:flow}
 \end{figure}
 
+The implementation is \textbf{purely data-driven}: every quantity is an empirical
+frequency or a ratio of counts from the provided CSV, followed by row-wise
+normalization where conditional distributions are required. We do not fit
+parametric models, run gradient-based learning, or impose structure beyond what
+the counts support. Consistency checks (policy rows and transition rows sum to
+one; global $c_k$ matches the sample mean of $\beta$ given $\alpha$) validate
+the arithmetic.
+
+The six assignment tasks form the pipeline above: a \textbf{dataset fingerprint}
+(Section~\ref{sec:estimators}) validates scale and raw penalty rates;
+\textbf{estimation} builds counts and conditional probabilities;
+\textbf{optimal-action} and \textbf{$\varepsilon$-optimality} analyses use the
+policy and global penalties; \textbf{simulation} draws synthetic trajectories
+from the learned model and compares marginals to the real data;
+\textbf{perturbation} randomly deletes rows and refits to test robustness;
+\textbf{model critique} compares per-state penalties $c_k(\phi_i)$ across
+$\phi_i$ to assess the P-model.
+Subsection~\ref{sec:implementation} maps each step to code; Appendix~\ref{app:code}
+lists the corresponding excerpts.
+
 \subsection{Implementation details}\label{sec:implementation}
 \sloppy
 
@@ -463,7 +466,9 @@ $P(\alpha_k\mid\phi_i)$, $P(\phi_j\mid\phi_i,\alpha_k)$, global $c_k$, and
 per-state $c_k(\phi_i)$; run consistency checks (Section~\ref{sec:estimators}).
 
 \textbf{Code.}\;
-Appendix~\ref{app:estimation} (\texttt{run\_estimation}, lines~104--189).
+Appendix~\ref{app:estimation}: table formatters with \texttt{SUM}/\texttt{Cons.}
+columns (lines~65--128), count/probability estimation and checks (lines~206--276),
+and report printing (lines~296--315).
 From \texttt{main}, per-state penalties are computed but not printed
 (\nolinkurl{print_penalty_per_state=False}).
 Optional CSV output is written under \nolinkurl{outputs/task1_estimation/}.
@@ -515,7 +520,7 @@ and compare $\alpha^\ast$, $\varepsilon$, and simulation L1 to the baseline
 \textbf{Code.}\; Appendix~\ref{app:main}:
 \texttt{\_drop\_rows\_randomly} (lines~36--51),
 \texttt{run\_all} perturbation loop (lines~319--344),
-\texttt{\_print\_experiments\_summary} (lines~162--255).
+\texttt{\_print\_experiments\_summary} (lines~162--255 in Appendix~\ref{app:main}).
 
 \textbf{Libraries.}\; \textbf{NumPy} (\texttt{default\_rng}, \texttt{choice} for row
 indices); \textbf{pandas} (\texttt{drop}, \texttt{reset\_index}).
@@ -534,7 +539,7 @@ lines~70--78, 150--159).
 \textbf{Libraries.}\; \textbf{pandas} (per-state table); \textbf{NumPy} (max/min spread,
 absolute differences).
 Also see \texttt{\_run\_tasks\_1\_to\_4} and \texttt{run\_all} in
-Appendix~\ref{app:main} (lines~91--133, 302--346).
+Appendix~\ref{app:main} (lines~91--133, 258--348).
 
 \subsubsection{Shared data loading (\texttt{util.py})}\label{sec:impl-util}
 
@@ -567,7 +572,7 @@ results in Section~\ref{sec:exp-results}.
 Table~\ref{tab:eval-metrics} summarizes the evaluation metrics and criteria for
 assignment Tasks~1--6.
 
-\begin{table}[htbp]
+\begin{table}[H]
   \centering
   \caption{Evaluation metrics and evaluation criteria (assignment Tasks~1--6).}
   \label{tab:eval-metrics}
@@ -654,7 +659,7 @@ assignment Tasks~1--6.
   \end{tabularx}
 \end{table}
 
-Input: \texttt{Engin-vsa\_dataset\_full.csv} ($|R|=3518$, $|S|=80$, $\bar{L}=43.98$).
+Input: the full dataset ($|R|=3518$, $|S|=80$, $\bar{L}=43.98$).
 One orchestrated run (\texttt{python main.py}) validates the fingerprint, fits Tasks~1--4
 on the full table (baseline), then refits on ten subsamples with 704 rows
 ($\approx$20\%) removed uniformly at random without replacement
@@ -663,29 +668,75 @@ Section~\ref{sec:estimators}; code mapping is in Section~\ref{sec:methodology}.
 
 \subsection{Experimental results}\label{sec:exp-results}
 
-Tables~\ref{tab:baseline-metrics}--\ref{tab:perturb-summary} collect the main
-numerics; Figures~\ref{fig:ck-baseline}--\ref{fig:spread-task6} visualize them.
 Per-trial count matrices and full Task~1--4 printouts are omitted here
 (Appendix~\ref{app:experiments}).
 
-\paragraph{Baseline (full data).}
+\subsubsection{Baseline (full data)}\label{sec:baseline-results}
+
 Fingerprint checksum $C=83035$ matches the assignment reference. Global penalties
 are ordered $c_1<c_2<c_3$ with $c_1=0.200$, $c_2=0.382$, $c_3=0.518$, so
 $\alpha^\ast=\alpha_1$ and $c_\ast=0.200$. The empirical policy is biased toward
 $\alpha_1$ in every state ($P(\alpha_1\mid\phi_i)\in[0.63,0.83]$), yet
 $\varepsilon=0.370$ because $\phi_5$ still chooses $\alpha_1$ only about 63\% of
 the time---behavior is \emph{weakly} optimal and heterogeneous across states
-(spread $0.201$). Simulation tracks the data well: $L_1=0.016$ on actions and
+(spread $0.201$ in $P(\alpha^\ast\mid\phi_i)$). Simulation tracks the data well:
+$L_1=0.016$ on actions, $0.015$ on $\phi_{\mathrm{src}}$, $0.016$ on
+$\phi_{\mathrm{dst}}$, and
 $|P(\beta{=}1)_{\mathrm{data}}-P(\beta{=}1)_{\mathrm{sim}}|=0.0077$ globally.
+Tables~\ref{tab:baseline-consistency} and~\ref{tab:baseline-metrics} summarize the
+baseline checks and main quantities; full count matrices, policy and transition
+tables with row \texttt{SUM}/\texttt{Cons.}, and Tasks~2--4 printouts are in
+Appendix~\ref{app:experiments} (baseline block).
 
-\paragraph{Perturbation (20\% row removal, 10 trials).}
-$\alpha^\ast=\alpha_1$ in \emph{all} trials. Perturbed $\varepsilon$ averages
-$0.371\pm0.014$ (only $+0.0013$ vs.\ baseline); individual trials span
-$[0.351,0.394]$. Action-marginal simulation error stays small
-($L_1^{\mathrm{act}}\in[0.0028,0.0210]$, baseline $0.0159$). Task~6 spreads
-grow slightly under subsampling (e.g.\ $\alpha_2$: baseline spread $0.100$ vs.\
-perturbed mean $0.121$), and the largest per-cell shift in $c_k(\phi_i)$ reaches
-$0.094$ (mean $0.052$ over trials).
+\begin{table}[htbp]
+  \centering
+  \caption{Task~1 consistency checks (baseline, full dataset).%
+    \newline\emph{Source:} consistency block under baseline Task~1 in
+    Appendix~\ref{app:experiments}.}
+  \label{tab:baseline-consistency}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Check} & \textbf{Result} \\
+    \midrule
+    $\sum_k P(\alpha_k \mid \phi_i) = 1$ (visited $\phi_i$) & PASS \\
+    $\sum_j P(\phi_j \mid \phi_i, \alpha_k) = 1$ (rows with mass) & PASS \\
+    Computed $c_k$ matches empirical $\beta{=}1$ rate per action & PASS \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Baseline metrics on the full dataset ($n=3518$ rows).}
+  \label{tab:baseline-metrics}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Quantity} & \textbf{Value} \\
+    \midrule
+    $|S|$, $\bar{L}$, checksum $C$ & 80, 43.98, 83035 \\
+    $c_1,c_2,c_3$ & 0.200, 0.382, 0.518 \\
+    $\alpha^\ast$, $c_\ast$ & $\alpha_1$, 0.200 \\
+    $\varepsilon$, $\min_i P(\alpha^\ast\mid\phi_i)$ & 0.370, 0.630 (state $\phi_5$) \\
+    $L_1$ (actions / $\phi_{\mathrm{src}}$ / $\phi_{\mathrm{dst}}$) & 0.016 / 0.015 / 0.016 \\
+    Task~6 spread ($\alpha_1,\alpha_2,\alpha_3$) & 0.051, 0.100, 0.244 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Interpretation for baseline.}
+\begin{itemize}[noitemsep]
+  \item \textbf{Is the system strongly optimal?}
+        Weakly---$\varepsilon$ is large: at least one visited state rarely chooses
+        $\alpha^\ast$ under the empirical policy.
+  \item \textbf{Is it noisy?}
+        Yes---high $\varepsilon$ and/or high spread across states suggests
+        heterogeneous or stochastic-looking action choices.
+  \item \textbf{Is behavior consistent across states?}
+        No---behavior differs markedly across visited states (large spread in
+        $P(\alpha^\ast\mid\phi)$).
+\end{itemize}
+\noindent Diagnostics: spread $=0.201$, $\mathrm{std}\,P(\alpha^\ast\mid\phi)=0.077$ on
+visited states.
 
 \begin{figure}[H]
   \centering
@@ -704,17 +755,14 @@ $0.094$ (mean $0.052$ over trials).
       bar width=14pt,
       enlarge x limits=0.2,
     ]
-      \addplot coordinates {($\alpha_1$,0.200) ($\alpha_2$,0.382) ($\alpha_3$,0.518)};
+      \addplot coordinates {
+        ($\alpha_1$,0.200) ($\alpha_2$,0.382) ($\alpha_3$,0.518)
+      };
     \end{axis}
   \end{tikzpicture}
   \caption{Global penalty probabilities $c_k$ (baseline).}
   \label{fig:ck-baseline}
 \end{figure}
-
-Figure~\ref{fig:ck-baseline} gives the global penalty ordering $c_1<c_2<c_3$
-($0.20$, $0.38$, $0.52$), so $\alpha^\ast=\alpha_1$ with $c_\ast\approx 0.20$.
-The separation between actions is clear enough that the optimal-action label is
-not sensitive to small count noise on this sample.
 
 \begin{figure}[H]
   \centering
@@ -745,11 +793,77 @@ not sensitive to small count noise on this sample.
   \label{fig:policy-alpha}
 \end{figure}
 
-Figure~\ref{fig:policy-alpha} shows that $P(\alpha_1\mid\phi_i)$ decreases from
-$\phi_1$ to $\phi_5$ (about $0.83$ down to $0.63$). State $\phi_5$ therefore sets
-$\varepsilon\approx 0.37$ even though every state favors $\alpha_1$: behavior is
-weakly $\varepsilon$-optimal with a cross-state spread of $0.20$ in
-$P(\alpha^\ast\mid\phi_i)$.
+Figure~\ref{fig:ck-baseline} gives the global penalty ordering $c_1<c_2<c_3$
+($0.20$, $0.38$, $0.52$), so $\alpha^\ast=\alpha_1$ with $c_\ast\approx 0.20$.
+Figure~\ref{fig:policy-alpha} shows $P(\alpha_1\mid\phi_i)$ decreasing from
+$\phi_1$ to $\phi_5$ (about $0.83$ down to $0.63$), so behavior is weakly
+$\varepsilon$-optimal despite uniform favoritism of $\alpha_1$.
+
+\subsubsection{Perturbation (20\% row removal, 10 trials)}\label{sec:perturbation-results}
+
+$\alpha^\ast=\alpha_1$ in \emph{all} ten subsamples ($n=2814$ rows each after
+removing 704 rows). Perturbed $\varepsilon$ averages $0.371\pm0.014$ (mean shift
+$+0.0013$ vs.\ baseline $0.370$); individual trials span $[0.351,\,0.394]$.
+Action-marginal simulation error remains small ($L_1^{\mathrm{act}}\in[0.0028,\,0.0210]$,
+baseline $0.016$). Task~6 spreads grow slightly under subsampling (e.g.\
+$\alpha_2$: baseline spread $0.100$ vs.\ perturbed mean $0.121$), and the largest
+per-cell shift in $c_k(\phi_i)$ vs.\ baseline reaches $0.094$ (mean $0.052$ over
+trials).
+Tables~\ref{tab:perturbation-trial0-consistency} and~\ref{tab:perturbation-trial0-metrics}
+illustrate the first perturbation trial (trial~0, 704 rows removed, $n=2814$);
+Table~\ref{tab:perturb-summary} aggregates all ten trials.
+The full perturbation log (Tasks~1--6 for each trial) is in Appendix~\ref{app:experiments}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Task~1 consistency checks (perturbation trial~0, $n=2814$ rows).%
+    \newline\emph{Source:} consistency block under \texttt{trial~0} Task~1 in
+    Appendix~\ref{app:experiments}.}
+  \label{tab:perturbation-trial0-consistency}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Check} & \textbf{Result} \\
+    \midrule
+    $\sum_k P(\alpha_k \mid \phi_i) = 1$ (visited $\phi_i$) & PASS \\
+    $\sum_j P(\phi_j \mid \phi_i, \alpha_k) = 1$ (rows with mass) & PASS \\
+    Computed $c_k$ matches empirical $\beta{=}1$ rate per action & PASS \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Perturbation trial~0 metrics ($n=2814$ rows, 704 removed).}
+  \label{tab:perturbation-trial0-metrics}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Quantity} & \textbf{Value} \\
+    \midrule
+    $c_1,c_2,c_3$ & 0.202, 0.389, 0.520 \\
+    $\alpha^\ast$, $c_\ast$ & $\alpha_1$, 0.202 \\
+    $\varepsilon$, $\min_i P(\alpha^\ast\mid\phi_i)$ & 0.392, 0.608 (state $\phi_5$) \\
+    $L_1$ (actions / $\phi_{\mathrm{src}}$ / $\phi_{\mathrm{dst}}$) & 0.006 / 0.050 / 0.051 \\
+    $|\bar\beta_{\mathrm{data}}-\bar\beta_{\mathrm{sim}}|$ (global) & 0.0003 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Interpretation for perturbation (trial~0).}
+The following answers refer to trial~0 only ($n=2814$ rows after removing 704).
+Tasks~1--6 results for trials~1--9 are reported in Appendix~\ref{app:experiments}.
+\begin{itemize}[noitemsep]
+  \item \textbf{Is the system strongly optimal?}
+        Weakly---$\varepsilon$ is large: at least one visited state rarely chooses
+        $\alpha^\ast$ under the empirical policy.
+  \item \textbf{Is it noisy?}
+        Yes---high $\varepsilon$ and/or high spread across states suggests
+        heterogeneous or stochastic-looking action choices.
+  \item \textbf{Is behavior consistent across states?}
+        No---behavior differs markedly across visited states (large spread in
+        $P(\alpha^\ast\mid\phi)$).
+\end{itemize}
+\noindent Diagnostics: spread $=0.214$, $\mathrm{std}\,P(\alpha^\ast\mid\phi)=0.082$ on
+visited states ($\varepsilon=0.392$ on the subsample).
 
 \begin{figure}[H]
   \centering
@@ -778,11 +892,6 @@ $P(\alpha^\ast\mid\phi_i)$.
   \label{fig:eps-trials}
 \end{figure}
 
-Figure~\ref{fig:eps-trials} plots $\varepsilon$ for ten perturbation trials against
-the baseline dashed line at $0.370$. All points lie in $[0.351,\,0.394]$ with mean
-$0.371\pm 0.014$, so subsampling shifts optimality gap little even though
-$\alpha^\ast$ stays $\alpha_1$ in every trial (Table~\ref{tab:perturb-summary}).
-
 \begin{figure}[H]
   \centering
   \begin{tikzpicture}
@@ -809,30 +918,12 @@ $\alpha^\ast$ stays $\alpha_1$ in every trial (Table~\ref{tab:perturb-summary}).
   \label{fig:spread-task6}
 \end{figure}
 
-Figure~\ref{fig:spread-task6} compares Task~6 spreads of $c_k(\phi_i)$ across states.
-At baseline, $\alpha_3$ has the largest spread ($0.244$); perturbed means rise for
-$\alpha_2$ and $\alpha_3$ ($0.121$ and $0.250$), while $\alpha_1$ stays near
-$0.051$. Together with a mean maximum cell drift of $0.052$ (max $0.094$ in
-Table~\ref{tab:perturb-summary}), the plots indicate measurable state dependence in
-penalties beyond a single global vector per action.
-
-\begin{table}[htbp]
-  \centering
-  \caption{Baseline metrics on the full dataset ($n=3518$ rows).}
-  \label{tab:baseline-metrics}
-  \begin{tabular}{@{}ll@{}}
-    \toprule
-    \textbf{Quantity} & \textbf{Value} \\
-    \midrule
-    $|S|$, $\bar{L}$, checksum $C$ & 80, 43.98, 83035 \\
-    $c_1,c_2,c_3$ & 0.200, 0.382, 0.518 \\
-    $\alpha^\ast$, $c_\ast$ & $\alpha_1$, 0.200 \\
-    $\varepsilon$, $\min_i P(\alpha^\ast\mid\phi_i)$ & 0.370, 0.630 (state $\phi_5$) \\
-    $L_1$ (actions / $\phi_{\mathrm{src}}$ / $\phi_{\mathrm{dst}}$) & 0.016 / 0.015 / 0.016 \\
-    Task~6 spread ($\alpha_1,\alpha_2,\alpha_3$) & 0.051, 0.100, 0.244 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+Figure~\ref{fig:eps-trials} plots $\varepsilon$ for ten perturbation trials against
+the baseline dashed line at $0.370$. Figure~\ref{fig:spread-task6} compares Task~6
+spreads; $\alpha_3$ has the largest baseline spread ($0.244$), and perturbed means
+rise for $\alpha_2$ and $\alpha_3$ while $\alpha_1$ stays near $0.051$.
+Table~\ref{tab:perturb-summary} summarizes stability of $\alpha^\ast$, $\varepsilon$,
+$L_1^{\mathrm{act}}$, and per-state penalty drift.
 
 \begin{table}[htbp]
   \centering
@@ -844,19 +935,12 @@ penalties beyond a single global vector per action.
     \midrule
     $\alpha^\ast$ (all trials) & $\alpha_1$ \\
     $\varepsilon$: mean $\pm$ std (vs.\ baseline $0.370$) & $0.371 \pm 0.014$ \\
-    $L_1^{\mathrm{act}}$ range & $[0.0028,\,0.0210]$ \\
+    $L_1^{\mathrm{act}}$ range (baseline $0.016$) & $[0.0028,\,0.0210]$ \\
     Task~6 spread mean ($\alpha_1,\alpha_2,\alpha_3$) & 0.051, 0.121, 0.250 \\
     $|\Delta c_k(\phi_i)|$ max / mean over trials & 0.094 / 0.052 \\
     \bottomrule
   \end{tabular}
 \end{table}
-
-Table~\ref{tab:baseline-metrics} records baseline simulation $L_1$ gaps near
-$0.016$ on actions and states and a global penalty-rate mismatch of $0.008$, so the
-fitted policy, transitions, and Bernoulli penalties are mutually consistent with the
-observed histograms on the same file. Table~\ref{tab:perturb-summary} confirms that
-$L_1^{\mathrm{act}}$ under perturbation stays below $0.021$ while $\alpha^\ast$ and
-the $\{c_k\}$ ordering are unchanged.
 
 \subsection{Discussion}\label{sec:discussion}
 
@@ -918,7 +1002,14 @@ Section~\ref{sec:estimators}.
 
 \subsection{\texttt{estimation.py}}\label{app:estimation}
 
-\lstinputlisting[firstline=104,lastline=189]{../proj_python/estimation.py}
+\texttt{\_format\_sum\_cons\_table} and \texttt{\_format\_penalty\_table}:
+\lstinputlisting[firstline=65,lastline=128]{../proj_python/estimation.py}
+
+\texttt{run\_estimation} (probabilities, consistency checks, result):
+\lstinputlisting[firstline=206,lastline=276]{../proj_python/estimation.py}
+
+Report printing (policy, transitions, penalties with \texttt{SUM}/\texttt{Cons.}):
+\lstinputlisting[firstline=296,lastline=315]{../proj_python/estimation.py}
 
 \subsection{\texttt{optimal\_action\_identification.py}}\label{app:optimal}
 
@@ -945,10 +1036,10 @@ Section~\ref{sec:estimators}.
 
 \texttt{\_print\_experiments\_summary} (spread and table-delta helpers):
 \lstinputlisting[firstline=70,lastline=78]{../proj_python/main.py}
-\lstinputlisting[firstline=214,lastline=255]{../proj_python/main.py}
+\lstinputlisting[firstline=162,lastline=255]{../proj_python/main.py}
 
 \texttt{run\_all}:
-\lstinputlisting[firstline=302,lastline=346]{../proj_python/main.py}
+\lstinputlisting[firstline=258,lastline=348]{../proj_python/main.py}
 
 \subsection{\texttt{util.py}}\label{app:util}
 
@@ -964,10 +1055,14 @@ Column constants, shared result types, and CSV loading:
 \addcontentsline{toc}{section}{Appendix B: Full experimental log}%
 
 Complete console output from \texttt{python main.py} (\texttt{load\_all}:
-\texttt{perturbation\_rate=20}, ten trials, \texttt{random\_seed=42}).
+\texttt{perturbation\_rate=20}, ten trials, \texttt{random\_seed=42}) on
+\texttt{Engin-vsa\_dataset\_full.csv}.
+Task~1 tables include row \texttt{SUM} and \texttt{Cons.} columns for policies and
+transitions, and per-action penalty consistency messages alongside \texttt{c\_k} and
+empirical penalty rates.
 Greek labels are transliterated for typesetting
-(\texttt{a1}$\equiv\alpha_1$, \texttt{p1}$\equiv\phi_1$); the raw log is
-\texttt{experiments.txt}.
+(\texttt{a1}$\equiv\alpha_1$, \texttt{p1}$\equiv\phi_1$); the raw UTF-8 log is
+\texttt{experiments.txt} (2553 lines).
 
 \lstinputlisting[
   language={},
