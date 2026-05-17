@@ -65,7 +65,12 @@ public final class Util {
 
     public static String section(String title) {
         String bar = "=".repeat(72);
-        return "\n" + bar + "\n" + title + "\n" + bar;
+        return "\n" + bar + "\n" + title + "\n" + bar + "\n";
+    }
+
+    /** Use UTF-8 for stdout (Greek state/action labels in the dataset). */
+    public static void configureUtf8Stdout() {
+        System.setOut(new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8));
     }
 
     public static List<VsaRow> loadVsaDataset(Path csvPath) throws IOException {
@@ -231,25 +236,35 @@ public final class Util {
             return column(col).values().stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
         }
 
-        @Override
-        public String toString() {
-            int idxW = rowLabels.stream().mapToInt(String::length).max().orElse(4);
-            int colW = colLabels.stream().mapToInt(String::length).max().orElse(4);
-            colW = Math.max(colW, 8);
+        /** Pandas-style table text ({@code integerCounts=true} for raw count matrices). */
+        public String format(boolean integerCounts) {
+            int idxW = Math.max(4, rowLabels.stream().mapToInt(String::length).max().orElse(0));
+            int colW = Math.max(6, colLabels.stream().mapToInt(String::length).max().orElse(0));
+            colW = Math.max(colW, integerCounts ? 6 : 10);
             StringBuilder sb = new StringBuilder();
-            sb.append(String.format("%" + idxW + "s", ""));
+            sb.append(String.format("%-" + idxW + "s", ""));
             for (String c : colLabels) {
                 sb.append(String.format("%" + (colW + 2) + "s", c));
             }
             sb.append("\n");
             for (int ri = 0; ri < rowLabels.size(); ri++) {
-                sb.append(String.format("%" + idxW + "s", rowLabels.get(ri)));
+                sb.append(String.format("%-" + idxW + "s", rowLabels.get(ri)));
                 for (int ci = 0; ci < colLabels.size(); ci++) {
-                    sb.append(String.format("%" + (colW + 2) + ".6f", data[ri][ci]));
+                    double v = data[ri][ci];
+                    if (integerCounts) {
+                        sb.append(String.format("%" + (colW + 2) + ".0f", v));
+                    } else {
+                        sb.append(String.format("%" + (colW + 2) + ".6f", v));
+                    }
                 }
                 sb.append("\n");
             }
             return sb.toString().stripTrailing();
+        }
+
+        @Override
+        public String toString() {
+            return format(false);
         }
     }
 }

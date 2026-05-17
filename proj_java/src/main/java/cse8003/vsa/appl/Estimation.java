@@ -135,15 +135,15 @@ public final class Estimation {
         lines.append("Actions observed: ").append(result.actions()).append("\n");
 
         lines.append(Util.section("N(phi_i, alpha_k)   -- raw counts"));
-        lines.append(result.countsPhiAlpha()).append("\n");
+        lines.append(result.countsPhiAlpha().format(true)).append("\n");
 
         for (String a : result.actions()) {
             lines.append(Util.section("N(phi_i, alpha_k=" + a + ", phi_j)   -- raw counts"));
-            lines.append(result.countsPhiAlphaPhi().get(a)).append("\n");
+            lines.append(result.countsPhiAlphaPhi().get(a).format(true)).append("\n");
         }
 
         lines.append(Util.section("N(alpha_k, beta)   -- raw counts"));
-        lines.append(result.countsAlphaBeta()).append("\n");
+        lines.append(result.countsAlphaBeta().format(true)).append("\n");
 
         lines.append(Util.section("Policy   P(alpha_k | phi_i)"));
         lines.append(formatSumConsTable(result.policy(), result.countsPhiAlpha())).append("\n");
@@ -160,7 +160,7 @@ public final class Estimation {
         if (printPenaltyPerState) {
             lines.append(Util.section("Task 6 — Model assumption check"));
             lines.append("c_k(phi_i) = P(beta=1 | alpha_k, phi_i)\n");
-            lines.append(result.penaltyPerState()).append("\n");
+            lines.append(result.penaltyPerState().format(false)).append("\n");
         }
 
         lines.append(Util.section("Consistency checks"));
@@ -170,20 +170,59 @@ public final class Estimation {
         System.out.print(lines);
     }
 
-    private static String formatSumConsTable(Util.Table2D prob, Util.Table2D counts) {
-        StringBuilder sb = new StringBuilder(prob.toString());
-        sb.append("\n(SUM/Cons. columns omitted in Java port — see Python log for full table)\n");
-        return sb.toString();
+    private static String formatSumConsTable(Util.Table2D prob, Util.Table2D rowTotals) {
+        List<String> rows = prob.rowLabels();
+        List<String> cols = prob.colLabels();
+        int idxW = Math.max(4, rows.stream().mapToInt(String::length).max().orElse(0));
+        int colW = 10;
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("%-" + idxW + "s", ""));
+        for (String c : cols) {
+            sb.append(String.format("%" + (colW + 2) + "s", c));
+        }
+        sb.append(String.format("%" + (colW + 2) + "s", "SUM"));
+        sb.append(String.format("%" + 8 + "s", "Cons."));
+        sb.append("\n");
+        for (String row : rows) {
+            sb.append(String.format("%-" + idxW + "s", row));
+            double sum = 0.0;
+            for (String c : cols) {
+                double v = prob.get(row, c);
+                sum += v;
+                sb.append(String.format("%" + (colW + 2) + ".6f", v));
+            }
+            boolean active = rowTotals.sumRow(row) > 0.0;
+            String sumCell;
+            String consCell;
+            if (!active) {
+                sumCell = sum == 0.0 ? "0" : String.format("%.6f", sum);
+                consCell = "-";
+            } else if (Util.isClose(sum, 1.0)) {
+                sumCell = "1";
+                consCell = "PASS";
+            } else {
+                sumCell = String.format("%.6f", sum);
+                consCell = "FAIL";
+            }
+            sb.append(String.format("%" + (colW + 2) + "s", sumCell));
+            sb.append(String.format("%" + 10 + "s", consCell));
+            sb.append("\n");
+        }
+        return sb.toString().stripTrailing();
     }
 
     private static String formatPenaltyTable(Map<String, Double> penalty, Map<String, Double> empirical) {
+        int valW = 12;
+        List<String> actions = new java.util.ArrayList<>(penalty.keySet());
+        int idxW = Math.max(5, actions.stream().mapToInt(String::length).max().orElse(0));
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%8s  %12s  %12s  %s%n", "alpha", "c_k", "empirical", "Cons."));
-        for (String a : penalty.keySet()) {
+        sb.append(String.format("%" + idxW + "s  %" + valW + "s  %" + valW + "s  %s%n", "", "c_k", "empirical", "Cons."));
+        sb.append(String.format("%" + idxW + "s  %" + valW + "s  %" + valW + "s%n", "alpha", "", "penalty"));
+        for (String a : actions) {
             double ck = penalty.get(a);
             double emp = empirical.getOrDefault(a, 0.0);
             String cons = Util.isClose(ck, emp) ? PENALTY_CONS_PASS : PENALTY_CONS_FAIL;
-            sb.append(String.format("%8s  %12.6f  %12.6f  %s%n", a, ck, emp, cons));
+            sb.append(String.format("%" + idxW + "s  %" + valW + ".6f  %" + valW + ".6f  %s%n", a, ck, emp, cons));
         }
         return sb.toString();
     }

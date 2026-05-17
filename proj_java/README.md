@@ -24,6 +24,8 @@ gradle run
 
 Or after generating the wrapper: `./gradlew run` (Unix) / `gradlew.bat run` (Windows).
 
+Run **Main** from the IDE (UTF-8 console) and copy the full log into `../report/experiments_java.txt` if you need a saved Java run for the report.
+
 Default config matches Python `load_all()`: 20% perturbation, 10 trials, seed 42.
 
 ## Notes
