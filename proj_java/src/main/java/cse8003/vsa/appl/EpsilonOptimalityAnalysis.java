@@ -68,18 +68,25 @@ public final class EpsilonOptimalityAnalysis {
             lines.append(String.format("min_i P(α*|φ_i) over visited states = %.6f%n", minP));
             lines.append(String.format("ε   = 1 − min_i P(α*|φ_i) = %.6f%n", epsilon));
             lines.append("Visited states (count): ").append(pPerState.size()).append("\n");
-            lines.append("Argmin state(s) (ties): ").append(argmin).append("\n\n");
+            lines.append("Argmin state(s) (ties): ").append(Util.formatPythonList(argmin)).append("\n\n");
             lines.append("P(α*|φ_i) on visited states:\n");
+            Map<String, Double> sortedP = new LinkedHashMap<>();
             pPerState.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
-                    .forEach(e -> lines.append(String.format("  %s  %.6f%n", e.getKey(), e.getValue())));
-            lines.append("\n").append(Util.section("Interpretation (assignment prompts)"));
+                    .forEach(e -> sortedP.put(e.getKey(), e.getValue()));
+            lines.append(Util.formatSeries(Util.CLMN_PHI_SRC, sortedP)).append("\n\n");
+            lines.append(Util.section("Interpretation (assignment prompts)"));
             for (var e : interp.entrySet()) {
                 if (e.getKey().startsWith("spread_") || e.getKey().startsWith("std_")) {
                     continue;
                 }
                 lines.append("• ").append(e.getKey()).append("\n  ").append(e.getValue()).append("\n");
             }
+            lines.append("\nDiagnostics: spread(max−min P)=")
+                    .append(interp.get("spread_max_minus_min_P"))
+                    .append(", std(P)=")
+                    .append(interp.get("std_P_across_visited_states"))
+                    .append("\n");
             System.out.print(lines);
         }
         return result;

@@ -131,27 +131,30 @@ public final class Estimation {
         StringBuilder lines = new StringBuilder();
         lines.append(Util.section("Task 1 - Estimation   (dataset: " + datasetLabel + ")"));
         lines.append("Rows in dataset : ").append(result.nRows()).append("\n");
-        lines.append("States observed : ").append(result.states()).append("\n");
-        lines.append("Actions observed: ").append(result.actions()).append("\n");
+        lines.append("States observed : ").append(Util.formatPythonList(result.states())).append("\n");
+        lines.append("Actions observed: ").append(Util.formatPythonList(result.actions())).append("\n");
 
         lines.append(Util.section("N(phi_i, alpha_k)   -- raw counts"));
-        lines.append(result.countsPhiAlpha().format(true)).append("\n");
+        lines.append(result.countsPhiAlpha().format(true, Util.CLMN_PHI_SRC, Util.CLMN_ALPHA)).append("\n");
 
         for (String a : result.actions()) {
             lines.append(Util.section("N(phi_i, alpha_k=" + a + ", phi_j)   -- raw counts"));
-            lines.append(result.countsPhiAlphaPhi().get(a).format(true)).append("\n");
+            lines.append(result.countsPhiAlphaPhi().get(a).format(true, Util.CLMN_PHI_SRC, Util.CLMN_PHI_DST))
+                    .append("\n");
         }
 
         lines.append(Util.section("N(alpha_k, beta)   -- raw counts"));
-        lines.append(result.countsAlphaBeta().format(true)).append("\n");
+        lines.append(result.countsAlphaBeta().format(true, Util.CLMN_ALPHA, Util.CLMN_BETA)).append("\n");
 
         lines.append(Util.section("Policy   P(alpha_k | phi_i)"));
-        lines.append(formatSumConsTable(result.policy(), result.countsPhiAlpha())).append("\n");
+        lines.append(formatSumConsTable(result.policy(), result.countsPhiAlpha(), Util.CLMN_ALPHA))
+                .append("\n");
 
         for (String a : result.actions()) {
             lines.append(Util.section("Transition   P(phi_j | phi_i, alpha_k=" + a + ")"));
             Util.Table2D n = result.countsPhiAlphaPhi().get(a);
-            lines.append(formatSumConsTable(result.transition().get(a), n)).append("\n");
+            lines.append(formatSumConsTable(result.transition().get(a), n, Util.CLMN_PHI_DST))
+                    .append("\n");
         }
 
         lines.append(Util.section("Penalty probabilities   c_k = P(beta=1 | alpha_k)"));
@@ -160,7 +163,8 @@ public final class Estimation {
         if (printPenaltyPerState) {
             lines.append(Util.section("Task 6 — Model assumption check"));
             lines.append("c_k(phi_i) = P(beta=1 | alpha_k, phi_i)\n");
-            lines.append(result.penaltyPerState().format(false)).append("\n");
+            lines.append(result.penaltyPerState().format(false, Util.CLMN_PHI_SRC, Util.CLMN_ALPHA))
+                    .append("\n");
         }
 
         lines.append(Util.section("Consistency checks"));
@@ -170,45 +174,40 @@ public final class Estimation {
         System.out.print(lines);
     }
 
-    private static String formatSumConsTable(Util.Table2D prob, Util.Table2D rowTotals) {
+    private static String formatSumConsTable(
+            Util.Table2D prob, Util.Table2D rowTotals, String colIndexName) {
         List<String> rows = prob.rowLabels();
         List<String> cols = prob.colLabels();
-        int idxW = Math.max(4, rows.stream().mapToInt(String::length).max().orElse(0));
-        int colW = 10;
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format("%-" + idxW + "s", ""));
-        for (String c : cols) {
-            sb.append(String.format("%" + (colW + 2) + "s", c));
-        }
-        sb.append(String.format("%" + (colW + 2) + "s", "SUM"));
-        sb.append(String.format("%" + 8 + "s", "Cons."));
-        sb.append("\n");
-        for (String row : rows) {
-            sb.append(String.format("%-" + idxW + "s", row));
+        List<String> colLabels = new java.util.ArrayList<>(cols);
+        colLabels.add("SUM");
+        colLabels.add("Cons.");
+        Object[][] cells = new Object[rows.size()][colLabels.size()];
+        for (int ri = 0; ri < rows.size(); ri++) {
+            String row = rows.get(ri);
             double sum = 0.0;
-            for (String c : cols) {
-                double v = prob.get(row, c);
+            for (int ci = 0; ci < cols.size(); ci++) {
+                double v = prob.get(row, cols.get(ci));
                 sum += v;
-                sb.append(String.format("%" + (colW + 2) + ".6f", v));
+                cells[ri][ci] = v;
             }
             boolean active = rowTotals.sumRow(row) > 0.0;
-            String sumCell;
-            String consCell;
             if (!active) {
-                sumCell = sum == 0.0 ? "0" : String.format("%.6f", sum);
-                consCell = "-";
+                cells[ri][cols.size()] = sum == 0.0 ? "0" : String.format("%.6f", sum);
+                cells[ri][cols.size() + 1] = "-";
             } else if (Util.isClose(sum, 1.0)) {
-                sumCell = "1";
-                consCell = "PASS";
+                cells[ri][cols.size()] = "1";
+                cells[ri][cols.size() + 1] = "PASS";
             } else {
-                sumCell = String.format("%.6f", sum);
-                consCell = "FAIL";
+                cells[ri][cols.size()] = String.format("%.6f", sum);
+                cells[ri][cols.size() + 1] = "FAIL";
             }
-            sb.append(String.format("%" + (colW + 2) + "s", sumCell));
-            sb.append(String.format("%" + 10 + "s", consCell));
-            sb.append("\n");
         }
-        return sb.toString().stripTrailing();
+        Util.CellKind[] kinds = new Util.CellKind[colLabels.size()];
+        java.util.Arrays.fill(kinds, 0, cols.size(), Util.CellKind.FLOAT6);
+        kinds[cols.size()] = Util.CellKind.STRING;
+        kinds[cols.size() + 1] = Util.CellKind.STRING;
+        return Util.formatDataFrame(
+                Util.CLMN_PHI_SRC, colIndexName, true, rows, colLabels, cells, kinds);
     }
 
     private static String formatPenaltyTable(Map<String, Double> penalty, Map<String, Double> empirical) {

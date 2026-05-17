@@ -48,9 +48,7 @@ public final class Fingerprint {
             sb.append("Number of sequences   : ").append(nSequences).append("\n");
             sb.append(String.format("Mean sequence length  : %.6f%n", meanLen));
             sb.append("\nEmpirical penalty rate per action  (mean of beta given alpha):\n");
-            for (var e : penaltyRates.entrySet()) {
-                sb.append(String.format("  %s  %.6f%n", e.getKey(), e.getValue()));
-            }
+            sb.append(Util.formatSeries(Util.CLMN_ALPHA, penaltyRates));
             sb.append("\nChecksum  (sum of step over all rows):\n");
             sb.append("  checksum = ").append(checksum);
             System.out.println(sb);

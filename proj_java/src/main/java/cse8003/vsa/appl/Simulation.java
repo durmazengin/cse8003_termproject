@@ -210,27 +210,20 @@ public final class Simulation {
         lines.append(Util.section("Task 4 — Simulation   (source: estimation-result, seed=" + r.randomSeed() + ")"));
         lines.append("Real rows: ").append(realRows).append("  |  Synthetic rows: ").append(r.nSyntheticRows()).append("\n\n");
         lines.append("|P_data − P_sim| — action distribution\n");
-        lines.append(formatSeries(r.absDiffAction())).append("\n");
+        lines.append(Util.formatSeries(Util.CLMN_ALPHA, r.absDiffAction())).append("\n");
         lines.append(String.format("  L1 sum of abs diffs (actions): %.6f%n%n", r.l1Action()));
         lines.append("|P_data − P_sim| — phi_src visitation\n");
-        lines.append(formatSeries(r.absDiffPhiSrc())).append("\n");
+        lines.append(Util.formatSeries(Util.CLMN_PHI_SRC, r.absDiffPhiSrc())).append("\n");
         lines.append(String.format("  L1 sum: %.6f%n%n", r.l1PhiSrc()));
         lines.append("|P_data − P_sim| — phi_dst visitation\n");
-        lines.append(formatSeries(r.absDiffPhiDst())).append("\n");
+        lines.append(Util.formatSeries(Util.CLMN_PHI_DST, r.absDiffPhiDst())).append("\n");
         lines.append(String.format("  L1 sum: %.6f%n%n", r.l1PhiDst()));
         lines.append("|mean_beta_data − mean_beta_sim| per action (penalty rate)\n");
-        lines.append(formatSeries(r.absDiffPenaltyPerAction())).append("\n");
+        lines.append(Util.formatSeries(Util.CLMN_ALPHA, r.absDiffPenaltyPerAction())).append("\n");
         double l1Pen = r.absDiffPenaltyPerAction().values().stream().mapToDouble(Double::doubleValue).sum();
         lines.append(String.format("  L1 sum (per-action |Δ|): %.6f%n%n", l1Pen));
         lines.append(String.format("Global penalty rate  |Δ|:  data=%.6f  sim=%.6f  |Δ|=%.6f%n", gData, gSim, r.absDiffPenaltyGlobal()));
         System.out.print(lines);
     }
 
-    private static String formatSeries(Map<String, Double> values) {
-        StringBuilder sb = new StringBuilder();
-        for (var e : values.entrySet()) {
-            sb.append(String.format("%s    %.6f%n", e.getKey(), e.getValue()));
-        }
-        return sb.toString();
-    }
 }

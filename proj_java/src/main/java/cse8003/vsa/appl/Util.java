@@ -68,6 +68,146 @@ public final class Util {
         return "\n" + bar + "\n" + title + "\n" + bar + "\n";
     }
 
+    /** Python list repr, e.g. {@code ['φ1', 'φ2']}. */
+    public static String formatPythonList(List<String> items) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append('\'').append(items.get(i)).append('\'');
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
+    public enum CellKind {
+        FLOAT6,
+        INT,
+        BOOL,
+        STRING
+    }
+
+    private static String cellToString(Object cell, CellKind kind) {
+        if (cell == null) {
+            return "";
+        }
+        return switch (kind) {
+            case FLOAT6 -> String.format("%.6f", ((Number) cell).doubleValue());
+            case INT -> String.valueOf(((Number) cell).intValue());
+            case BOOL -> (Boolean) cell ? "True" : "False";
+            case STRING -> cell.toString();
+        };
+    }
+
+    /** pandas {@code Series.to_string()} for float values (6 decimal places). */
+    public static String formatSeries(String indexName, Map<String, Double> values) {
+        if (values.isEmpty()) {
+            return indexName == null ? "" : indexName;
+        }
+        List<String> labels = new ArrayList<>(values.keySet());
+        List<String> formatted = new ArrayList<>();
+        for (String label : labels) {
+            formatted.add(String.format("%.6f", values.get(label)));
+        }
+        int idxW = labels.stream().mapToInt(String::length).max().orElse(0);
+        StringBuilder sb = new StringBuilder();
+        if (indexName != null) {
+            sb.append(indexName).append('\n');
+        }
+        for (int i = 0; i < labels.size(); i++) {
+            sb.append(String.format("%-" + idxW + "s    %s%n", labels.get(i), formatted.get(i)));
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /**
+     * pandas {@code DataFrame.to_string()} layout.
+     *
+     * @param colIndexNameOnFirstRow {@code true} for count/probability tables (index name on
+     *     header row 1); {@code false} for ranking-style frames (index name on header row 2 only)
+     */
+    public static String formatDataFrame(
+            String rowIndexName,
+            String colIndexName,
+            boolean colIndexNameOnFirstRow,
+            List<String> rowLabels,
+            List<String> colLabels,
+            Object[][] cells,
+            CellKind[] columnKinds) {
+        int nRows = rowLabels.size();
+        int nCols = colLabels.size();
+        String[][] str = new String[nRows][nCols];
+        for (int i = 0; i < nRows; i++) {
+            for (int j = 0; j < nCols; j++) {
+                str[i][j] = cellToString(cells[i][j], columnKinds[j]);
+            }
+        }
+
+        int idxW = rowLabels.stream().mapToInt(String::length).max().orElse(0);
+        if (rowIndexName != null) {
+            idxW = Math.max(idxW, rowIndexName.length());
+        }
+        if (colIndexNameOnFirstRow && colIndexName != null) {
+            idxW = Math.max(idxW, colIndexName.length());
+        }
+
+        int[] colW = new int[nCols];
+        for (int j = 0; j < nCols; j++) {
+            colW[j] = colLabels.get(j).length();
+            for (int i = 0; i < nRows; i++) {
+                colW[j] = Math.max(colW[j], str[i][j].length());
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (colIndexNameOnFirstRow) {
+            sb.append(String.format("%-" + idxW + "s", colIndexName == null ? "" : colIndexName));
+        } else {
+            sb.append(String.format("%-" + idxW + "s", ""));
+        }
+        for (int j = 0; j < nCols; j++) {
+            sb.append(' ').append(String.format("%" + colW[j] + "s", colLabels.get(j)));
+        }
+        sb.append('\n');
+
+        if (!colIndexNameOnFirstRow && rowIndexName != null) {
+            sb.append(String.format("%-" + idxW + "s", rowIndexName)).append('\n');
+        } else if (rowIndexName != null) {
+            sb.append(String.format("%-" + idxW + "s", rowIndexName)).append('\n');
+        }
+
+        for (int i = 0; i < nRows; i++) {
+            sb.append(String.format("%-" + idxW + "s", rowLabels.get(i)));
+            for (int j = 0; j < nCols; j++) {
+                sb.append(' ').append(String.format("%" + colW[j] + "s", str[i][j]));
+            }
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /** Ranking table from Task 2 ({@code ranking.round(6).to_string()}). */
+    public static String formatRanking(List<RankRow> rows) {
+        List<String> rowLabels = rows.stream().map(RankRow::alpha).toList();
+        List<String> colLabels = List.of("c_k", "rank", "is_optimal");
+        Object[][] cells = new Object[rows.size()][3];
+        for (int i = 0; i < rows.size(); i++) {
+            RankRow r = rows.get(i);
+            cells[i][0] = r.ck();
+            cells[i][1] = r.rank();
+            cells[i][2] = r.optimal();
+        }
+        return formatDataFrame(
+                CLMN_ALPHA,
+                null,
+                false,
+                rowLabels,
+                colLabels,
+                cells,
+                new CellKind[] {CellKind.FLOAT6, CellKind.INT, CellKind.BOOL});
+    }
+
     /** Use UTF-8 for stdout (Greek state/action labels in the dataset). */
     public static void configureUtf8Stdout() {
         System.setOut(new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8));
@@ -236,35 +376,24 @@ public final class Util {
             return column(col).values().stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
         }
 
-        /** Pandas-style table text ({@code integerCounts=true} for raw count matrices). */
-        public String format(boolean integerCounts) {
-            int idxW = Math.max(4, rowLabels.stream().mapToInt(String::length).max().orElse(0));
-            int colW = Math.max(6, colLabels.stream().mapToInt(String::length).max().orElse(0));
-            colW = Math.max(colW, integerCounts ? 6 : 10);
-            StringBuilder sb = new StringBuilder();
-            sb.append(String.format("%-" + idxW + "s", ""));
-            for (String c : colLabels) {
-                sb.append(String.format("%" + (colW + 2) + "s", c));
-            }
-            sb.append("\n");
+        /** Pandas-style table ({@code integerCounts=true} for raw count matrices). */
+        public String format(boolean integerCounts, String rowIndexName, String colIndexName) {
+            Object[][] cells = new Object[rowLabels.size()][colLabels.size()];
+            CellKind kind = integerCounts ? CellKind.INT : CellKind.FLOAT6;
+            CellKind[] kinds = new CellKind[colLabels.size()];
+            java.util.Arrays.fill(kinds, kind);
             for (int ri = 0; ri < rowLabels.size(); ri++) {
-                sb.append(String.format("%-" + idxW + "s", rowLabels.get(ri)));
                 for (int ci = 0; ci < colLabels.size(); ci++) {
-                    double v = data[ri][ci];
-                    if (integerCounts) {
-                        sb.append(String.format("%" + (colW + 2) + ".0f", v));
-                    } else {
-                        sb.append(String.format("%" + (colW + 2) + ".6f", v));
-                    }
+                    cells[ri][ci] = data[ri][ci];
                 }
-                sb.append("\n");
             }
-            return sb.toString().stripTrailing();
+            return formatDataFrame(
+                    rowIndexName, colIndexName, true, rowLabels, colLabels, cells, kinds);
         }
 
         @Override
         public String toString() {
-            return format(false);
+            return format(false, null, null);
         }
     }
 }

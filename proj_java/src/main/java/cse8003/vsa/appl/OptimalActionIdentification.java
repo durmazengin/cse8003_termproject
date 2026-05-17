@@ -48,22 +48,16 @@ public final class OptimalActionIdentification {
             StringBuilder lines = new StringBuilder();
             lines.append(Util.section("Task 2 - Optimal Action Identification   (source: estimation-result)"));
             lines.append("Penalty probabilities  c_k = P(beta = 1 | alpha_k):\n");
-            for (var e : penalty.entrySet()) {
-                lines.append(String.format("  %s  %.6f%n", e.getKey(), e.getValue()));
-            }
+            lines.append(Util.formatSeries(Util.CLMN_ALPHA, penalty)).append("\n");
             lines.append(String.format("%nalpha*  = %s%n", alphaStar));
             lines.append(String.format("c_*     = %.6f%n", cMin));
             if (ties.size() > 1) {
                 lines.append(String.format(
-                        "Note   : %d actions tie at the minimum: %s. Picked the first.%n",
-                        ties.size(), ties));
+                        "Note   : %d actions tie at the minimum: %s. Picked the first (alphabetical) one.%n",
+                        ties.size(), Util.formatPythonList(ties)));
             }
             lines.append(Util.section("Ranking by c_k (ascending)"));
-            for (Util.RankRow r : ranked) {
-                lines.append(String.format(
-                        "  %s  c_k=%.6f  rank=%d  optimal=%s%n",
-                        r.alpha(), r.ck(), r.rank(), r.optimal()));
-            }
+            lines.append(Util.formatRanking(ranked)).append("\n");
             System.out.print(lines);
         }
         return result;

@@ -287,7 +287,7 @@ public final class Main {
         lines.append("c_k(phi_i) = P(beta=1 | alpha_k, phi_i)\n");
         for (PipelineRunResult run : runs) {
             lines.append(run.label()).append("  (n=").append(run.nRows()).append(" rows):\n");
-            lines.append(run.cKPerState().format(false)).append("\n\n");
+            lines.append(run.cKPerState().format(false, Util.CLMN_PHI_SRC, Util.CLMN_ALPHA)).append("\n\n");
         }
         System.out.print(lines);
     }
