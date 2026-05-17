@@ -62,6 +62,72 @@ def _fmt(obj) -> str:
     return obj.to_string()
 
 
+def _format_sum_cons_table(
+    prob_df: pd.DataFrame,
+    active_mask: pd.Series,
+    *,
+    atol: float = 1e-9,
+) -> str:
+    """Probability table with row sums and per-row PASS/FAIL consistency."""
+    display = prob_df.round(6).copy()
+    row_sums = prob_df.sum(axis=1)
+    sum_col: list[object] = []
+    cons_col: list[str] = []
+    for idx in prob_df.index:
+        s = float(row_sums.loc[idx])
+        if not bool(active_mask.loc[idx]):
+            sum_col.append(round(s, 6) if s != 0.0 else 0)
+            cons_col.append("-")
+        elif np.isclose(s, 1.0, atol=atol):
+            sum_col.append(1)
+            cons_col.append("PASS")
+        else:
+            sum_col.append(round(s, 6))
+            cons_col.append("FAIL")
+    display["SUM"] = sum_col
+    display["Cons."] = cons_col
+    return display.to_string()
+
+
+_PENALTY_CONS_PASS = "c_k matches empirical frequencies"
+_PENALTY_CONS_FAIL = "c_k does not match empirical frequencies"
+
+
+def _format_penalty_table(
+    penalty: pd.Series,
+    empirical_penalty: pd.Series,
+    *,
+    atol: float = 1e-9,
+) -> str:
+    """Penalty table with stacked column headers and per-action consistency text."""
+    index_label = "alpha"
+    val_w = 12
+    rows: list[tuple[str, float, float, str]] = []
+    for a in penalty.index:
+        ck = float(penalty.loc[a])
+        emp = float(empirical_penalty.loc[a])
+        ok = np.isclose(ck, emp, atol=atol)
+        rows.append(
+            (
+                str(a),
+                ck,
+                emp,
+                _PENALTY_CONS_PASS if ok else _PENALTY_CONS_FAIL,
+            )
+        )
+
+    idx_w = max(len(index_label), *(len(r[0]) for r in rows))
+    lines = [
+        f"{'':>{idx_w}}  {'c_k':>{val_w}}  {'empirical':>{val_w}}  Cons.",
+        f"{index_label:>{idx_w}}  {'':>{val_w}}  {'penalty':>{val_w}}",
+    ]
+    for name, ck, emp, cons in rows:
+        lines.append(
+            f"{name:>{idx_w}}  {ck:>{val_w}.6f}  {emp:>{val_w}.6f}  {cons}"
+        )
+    return "\n".join(lines)
+
+
 def run_estimation(
     dataframe: pd.DataFrame,
     *,
@@ -228,15 +294,16 @@ def run_estimation(
     lines.append(_fmt(N_alpha_beta))
 
     lines.append(_section("Policy   P(alpha_k | phi_i)"))
-    lines.append(_fmt(policy.round(6)))
+    lines.append(_format_sum_cons_table(policy, nonzero_phi))
 
     for a in actions:
         lines.append(_section(f"Transition   P(phi_j | phi_i, alpha_k={a})"))
-        lines.append(_fmt(transition[a].round(6)))
+        transition_active = N_phi_alpha_phi[a].sum(axis=1) > 0
+        lines.append(_format_sum_cons_table(transition[a], transition_active))
 
     lines.append(_section("Penalty probabilities   c_k = P(beta=1 | alpha_k)"))
     side_by_side = pd.concat([penalty, empirical_penalty], axis=1).round(6)
-    lines.append(_fmt(side_by_side))
+    lines.append(_format_penalty_table(penalty, empirical_penalty))
 
     if print_penalty_per_state:
         lines.append(_section("Task 6 — Model assumption check"))
