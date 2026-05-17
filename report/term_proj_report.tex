@@ -162,94 +162,132 @@ depend on $\phi_i$ beyond the action label.
 
 \subsection{Empirical estimators}\label{sec:estimators}
 
-All formulas below are evaluated on a (possibly subsampled) interaction table.
-Each CSV row is one step; we write $n\in R$ for row indices and $S$ for the set
-of distinct \texttt{sequence\_id} values. For a fixed sequence $s\in S$,
-$J_s$ is how many rows belong to $s$ (that sequence's length in steps).
+The quantities below are standard count-based estimators for a VSA from a
+fixed interaction log. Let $R$ denote the set of observed steps (one per
+transition in the log), $S$ the set of trajectories (episodes), and $J_s$ the
+length of trajectory $s\in S$ in steps. Each step $n\in R$ records a source
+state $\Phi_{\mathrm{src}}(n)$, action $\alpha(n)$, destination
+$\Phi_{\mathrm{dst}}(n)$, and penalty indicator $\beta(n)\in\{0,1\}$.
 
-\paragraph{Dataset fingerprint.}
-Before modeling, the raw log is summarized by five quantities:
-\begin{itemize}[noitemsep]
-  \item \textbf{Total number of rows} $|R|$ (one per step in the file).
-  \item \textbf{Number of sequences} $|S|$ (distinct \texttt{sequence\_id}).
-  \item \textbf{Mean sequence length}
-        $\displaystyle \bar{L}=\frac{1}{|S|}\sum_{s\in S} J_s$
-        (average of the per-sequence lengths $J_s$).
-  \item \textbf{Empirical penalty rate per action} $\alpha_k$:
-        fraction of rows with $\alpha(n)=\alpha_k$ that have $\beta(n)=1$,
-        \[
-          \frac{1}{\#\{n\in R : \alpha(n)=\alpha_k\}}
-          \sum_{\substack{n\in R \\ \alpha(n)=\alpha_k}} \beta(n).
-        \]
-  \item \textbf{Checksum}
-        $\displaystyle C=\sum_{n\in R} \texttt{step}(n)$.
-\end{itemize}
-On the full dataset, each per-action rate above equals the global penalty
-$c_k$ used in estimation (both are the sample mean of $\beta$ given $\alpha_k$).
+\subsubsection{Mean sequence length}\label{sec:est:meanlen}
+\begin{equation}
+  \bar{L}=\frac{1}{|S|}\sum_{s\in S} J_s,
+  \label{eq:Lbar}
+\end{equation}
+the average trajectory length.
 
-\paragraph{Raw counts.}
-Probabilities are derived from three count tables: the empirical basis for
-the policy $P(\alpha_k\mid\phi_i)$, the transitions $P(\phi_j\mid\phi_i,\alpha_k)$,
-and the penalties $c_k$.
-Each entry counts how many rows $n\in R$ match a pattern on
-\texttt{phi\_src}, \texttt{phi\_dst}, \texttt{alpha}, and \texttt{beta}
-(written $\Phi_{\mathrm{src}}(n)$, $\Phi_{\mathrm{dst}}(n)$, $\alpha(n)$,
-$\beta(n)$ below).
+\subsubsection{Empirical penalty rate per action}\label{sec:est:penrate}
+For each action $\alpha_k$, the sample mean of $\beta$ among steps with that
+action:
+\begin{equation}
+  \hat{p}_k
+  = \frac{1}{\#\{n\in R : \alpha(n)=\alpha_k\}}
+    \sum_{\substack{n\in R \\ \alpha(n)=\alpha_k}} \beta(n).
+  \label{eq:penrate}
+\end{equation}
+Under the P-model, $\hat{p}_k$ estimates the same quantity as the global penalty
+$c_k$ in Eq.~\eqref{eq:ck-global}.
 
-\medskip
-\noindent\textbf{$N(\phi_i,\alpha_k)$ --- actions taken in a state.}
+\subsubsection{Checksum}\label{sec:est:checksum}
+When each step carries an integer index $t(n)$ (e.g.\ position within a
+trajectory), a simple integrity statistic is
+\begin{equation}
+  C=\sum_{n\in R} t(n).
+  \label{eq:checksum}
+\end{equation}
+Its value depends on how indices are assigned; it is used to detect accidental
+changes to the log before estimation.
+
+\subsubsection{Conditional estimates}\label{sec:est:conditional}
+The empirical policy uses action counts in each source state:
 \begin{equation}
   N(\phi_i,\alpha_k)
   = \#\{\, n\in R : \Phi_{\mathrm{src}}(n)=\phi_i,\; \alpha(n)=\alpha_k \,\}.
+  \label{eq:N-phi-alpha}
+\end{equation}
+Write $r_i=\sum_k N(\phi_i,\alpha_k)$ for the action total in state $\phi_i$.
+The empirical \textbf{policy} on visited states ($r_i>0$) is
+\begin{equation}
+  P(\alpha_k\mid\phi_i) = \frac{N(\phi_i,\alpha_k)}{r_i}.
+  \label{eq:policy}
 \end{equation}
 
-\medskip
-\noindent\textbf{$N(\phi_i,\alpha_k,\phi_j)$ --- transitions under an action.}
+\subsubsection{The global P-model penalty}\label{sec:est:globalpen}
+Penalty counts aggregate environment feedback by action:
+\begin{equation}
+  N(\alpha_k,\beta)
+  = \#\{\, n\in R : \alpha(n)=\alpha_k,\; \beta(n)=\beta \,\}.
+  \label{eq:N-alpha-beta}
+\end{equation}
+Under the P-model, penalty probability depends on the action only:
+\begin{equation}
+  c_k = P(\beta{=}1\mid\alpha_k)
+  = \frac{N(\alpha_k,1)}{N(\alpha_k,0)+N(\alpha_k,1)}.
+  \label{eq:ck-global}
+\end{equation}
+The lowest-penalty action is $\alpha^\ast\in\arg\min_k c_k$.
+On visited states $\mathcal{V}=\{\phi_i : r_i>0\}$, the $\varepsilon$-optimality gap is
+\begin{equation}
+  \varepsilon = 1 - \min_{\phi_i\in\mathcal{V}} P(\alpha^\ast\mid\phi_i).
+  \label{eq:epsilon}
+\end{equation}
+
+\subsubsection{Per-state penalties}\label{sec:est:perstate}
+To relax the action-only law, count penalized steps by source state and action:
+\begin{equation}
+  N(\phi_i,\alpha_k,\beta)
+  = \#\{\, n\in R : \Phi_{\mathrm{src}}(n)=\phi_i,\;
+  \alpha(n)=\alpha_k,\; \beta(n)=\beta \,\}.
+  \label{eq:N-phi-alpha-beta}
+\end{equation}
+For each $(\phi_i,\alpha_k)$ with $N(\phi_i,\alpha_k)>0$ (from \eqref{eq:N-phi-alpha}),
+\begin{equation}
+  c_k(\phi_i) = P(\beta{=}1\mid\alpha_k,\phi_i)
+  = \frac{N(\phi_i,\alpha_k,\beta{=}1)}{N(\phi_i,\alpha_k)}.
+  \label{eq:ck-perstate}
+\end{equation}
+Under a strict P-model, $c_k(\phi_i)$ should vary little in $\phi_i$ for fixed $k$;
+a diagnostic is $\max_i c_k(\phi_i)-\min_i c_k(\phi_i)$ per action.
+
+\subsubsection{Row-normalization at each source state}\label{sec:est:rownorm}
+Transition counts record destination states under each action:
 \begin{equation}
   N(\phi_i,\alpha_k,\phi_j)
   = \#\{\, n\in R : \Phi_{\mathrm{src}}(n)=\phi_i,\;
   \alpha(n)=\alpha_k,\; \Phi_{\mathrm{dst}}(n)=\phi_j \,\}.
+  \label{eq:N-transition}
 \end{equation}
+For each action $\alpha_k$, transition probabilities are obtained by
+normalizing over $\phi_j$. For source $\phi_i$ with
+$t_{ik}=\sum_j N(\phi_i,\alpha_k,\phi_j)>0$,
+\begin{equation}
+  P(\phi_j\mid\phi_i,\alpha_k)
+  = \frac{N(\phi_i,\alpha_k,\phi_j)}{t_{ik}};
+  \label{eq:transition}
+\end{equation}
+if $t_{ik}=0$, the transition row is all zeros.
 
-\medskip
-\noindent\textbf{$N(\alpha_k,\beta)$ --- environment feedback per action.}
-\begin{equation}
-  N(\alpha_k,\beta)
-  = \#\{\, n\in R : \alpha(n)=\alpha_k,\; \beta(n)=\beta \,\}.
-\end{equation}
-\noindent Write $r_i=\sum_k N(\phi_i,\alpha_k)$ for the row total over actions in
-state $\phi_i$.
+\subsubsection{Consistency calculations}\label{sec:est:consistency}
+The estimators in \eqref{eq:policy}--\eqref{eq:transition} and
+\eqref{eq:ck-global} should satisfy:
+\begin{itemize}[noitemsep]
+  \item \textbf{Policy rows:} for each visited $\phi_i$, $\sum_k P(\alpha_k\mid\phi_i)=1$.
+  \item \textbf{Transition rows:} for each $(\phi_i,\alpha_k)$ with $t_{ik}>0$,
+        $\sum_j P(\phi_j\mid\phi_i,\alpha_k)=1$.
+  \item \textbf{Penalty match:} for each $\alpha_k$, $c_k$ equals the empirical
+        $\beta{=}1$ rate among steps with action $\alpha_k$ (equivalently
+        $\hat{p}_k$ in Eq.~\eqref{eq:penrate}).
+\end{itemize}
 
-\paragraph{Conditional estimates.}
-For visited states ($r_i>0$),
-\begin{equation}
-  P(\alpha_k\mid\phi_i) = \frac{N(\phi_i,\alpha_k)}{r_i}.
-\end{equation}
-For each action $\alpha_k$, transition probabilities normalize each row of
-$N(\phi_i,\alpha_k,\phi_j)$ over $\phi_j$ (empty rows yield zeros). The
-\textbf{global} P-model penalty is
-\begin{equation}
-  c_k = P(\beta{=}1\mid\alpha_k)
-  = \frac{N(\alpha_k,1)}{N(\alpha_k,0)+N(\alpha_k,1)}.
-\end{equation}
-The action with lowest global penalty is
-$\alpha^\ast\in\arg\min_k c_k$. On visited states
-$\mathcal{V}=\{\phi_i : r_i>0\}$, the $\varepsilon$-optimality gap is
-$\varepsilon = 1 - \min_{\phi_i\in\mathcal{V}} P(\alpha^\ast\mid\phi_i)$.
-To simulate trajectories, sample
-$\alpha\sim P(\cdot\mid\phi)$, $\phi'\sim P(\cdot\mid\phi,\alpha)$, and
-$\beta\sim\mathrm{Bernoulli}(c_\alpha)$ along each real sequence length.
-
-\paragraph{Per-state penalties.}
-To relax the action-only penalty assumption, for each pair $(\phi_i,\alpha_k)$ with
-$N(\phi_i,\alpha_k)>0$,
-\begin{equation}
-  c_k(\phi_i) = P(\beta{=}1\mid\alpha_k,\phi_i)
-  = \frac{N(\phi_i,\alpha_k,\beta{=}1)}{N(\phi_i,\alpha_k)},
-\end{equation}
-where $N(\phi_i,\alpha_k,\beta{=}1)$ counts penalized steps with that state and
-action. Under a strict P-model, $c_k(\phi_i)$ should vary little in $\phi_i$ for
-fixed $k$; a diagnostic is $\max_i c_k(\phi_i)-\min_i c_k(\phi_i)$ per action.
+\subsubsection{Simulation from the learned model}\label{sec:est:simulation}
+Given empirical policy \eqref{eq:policy}, transitions \eqref{eq:transition},
+and penalties \eqref{eq:ck-global}, one may generate synthetic trajectories of
+prescribed lengths $\{J_s\}$: at each step in state $\phi$, draw
+$\alpha\sim P(\cdot\mid\phi)$,
+$\phi'\sim P(\cdot\mid\phi,\alpha)$, and
+$\beta\sim\mathrm{Bernoulli}(c_\alpha)$.
+Comparing marginals of $(\Phi_{\mathrm{src}},\alpha)$ and penalty rates to the
+log assesses how well the learned VSA reproduces observed behavior.
 
 \section{Methodology}\label{sec:methodology}
 
@@ -317,7 +355,7 @@ Algorithm~\ref{alg:flow} states the same logic in pseudocode.
   ]
     \node[startstop] (start) {Start};
     \node[proc, below=of start] (load) {Load interaction dataset};
-    \node[proc, below=of load] (fp) {Dataset fingerprint\\(Task~0)};
+    \node[proc, below=of load] (fp) {Row-count labels\\(Task~0)};
     \node[taskchain, below=of fp] (t14) {Tasks 1--4 on full data\\(estimate $\rightarrow$ $\alpha^\ast$
       $\rightarrow$ $\varepsilon$ $\rightarrow$ simulate)};
     \node[proc, below=of t14] (store) {Store baseline run};
@@ -375,8 +413,9 @@ the counts support. Consistency checks (policy rows and transition rows sum to
 one; global $c_k$ matches the sample mean of $\beta$ given $\alpha$) validate
 the arithmetic.
 
-The six assignment tasks form the pipeline above: a \textbf{dataset fingerprint}
-(Section~\ref{sec:estimators}) validates scale and raw penalty rates;
+The six assignment tasks form the pipeline above: \textbf{row-count labels}
+(Section~\ref{sec:estimators}, Eqs.~\eqref{eq:Lbar}--\eqref{eq:checksum})
+validate scale and raw penalty rates;
 \textbf{estimation} builds counts and conditional probabilities;
 \textbf{optimal-action} and \textbf{$\varepsilon$-optimality} analyses use the
 policy and global penalties; \textbf{simulation} draws synthetic trajectories
@@ -447,11 +486,12 @@ return type, and the matching appendix listing (file by file, no task labels).
   \end{tabularx}
 \end{table}
 
-\subsubsection{Dataset fingerprint (\texttt{fingerprint.py})}\label{sec:impl-fingerprint}
+\subsubsection{Row-count labels (\texttt{fingerprint.py})}\label{sec:impl-fingerprint}
 
-\textbf{Goal.}\; Before modeling, report $|R|$, $|S|$, $\bar{L}$, empirical penalty
-rate per action, and checksum $C$ (Section~\ref{sec:estimators}) so the submission
-can be validated against the assignment fingerprint.
+\textbf{Goal.}\; Before modeling, print row-count labels: $|R|$, $|S|$, $\bar{L}$,
+empirical penalty rate per action, and checksum $C$
+(Eqs.~\eqref{eq:Lbar}--\eqref{eq:checksum}) for validation against the
+assignment reference values.
 
 \textbf{Code.}\;
 Appendix~\ref{app:fingerprint} (\texttt{run\_fingerprint}, lines~86--99), invoked at
@@ -461,9 +501,13 @@ the start of Algorithm~\ref{alg:flow}.
 
 \subsubsection{Estimation (\texttt{estimation.py})}\label{sec:impl-estimation}
 
-\textbf{Goal.}\; From the interaction table, build raw count matrices and derive
-$P(\alpha_k\mid\phi_i)$, $P(\phi_j\mid\phi_i,\alpha_k)$, global $c_k$, and
-per-state $c_k(\phi_i)$; run consistency checks (Section~\ref{sec:estimators}).
+\textbf{Goal.}\; From the interaction table, build count matrices and derive
+$P(\alpha_k\mid\phi_i)$ (Eq.~\eqref{eq:policy}),
+$P(\phi_j\mid\phi_i,\alpha_k)$ (Eq.~\eqref{eq:transition}),
+global $c_k$ (Eq.~\eqref{eq:ck-global}), and
+per-state $c_k(\phi_i)$ (Eq.~\eqref{eq:ck-perstate}); verify consistency of
+Eqs.~\eqref{eq:policy}--\eqref{eq:transition} and \eqref{eq:ck-global} against
+Eq.~\eqref{eq:penrate}.
 
 \textbf{Code.}\;
 Appendix~\ref{app:estimation}: table formatters with \texttt{SUM}/\texttt{Cons.}
@@ -478,8 +522,8 @@ Optional CSV output is written under \nolinkurl{outputs/task1_estimation/}.
 
 \subsubsection{Optimal action (\texttt{optimal\_action\_identification.py})}\label{sec:impl-optimal}
 
-\textbf{Goal.}\; Identify $\alpha^\ast \in \arg\min_k c_k$ from the penalty vector and
-record ties deterministically.
+\textbf{Goal.}\; Identify $\alpha^\ast \in \arg\min_k c_k$ from Eq.~\eqref{eq:ck-global}
+and record ties deterministically.
 
 \textbf{Code.}\;
 Appendix~\ref{app:optimal} (\texttt{run\_optimal\_action}, lines~109--128); uses
@@ -490,9 +534,8 @@ Appendix~\ref{app:optimal} (\texttt{run\_optimal\_action}, lines~109--128); uses
 
 \subsubsection{$\varepsilon$-optimality (\texttt{e\_optimality\_analysis.py})}\label{sec:impl-epsilon}
 
-\textbf{Goal.}\; Compute
-$\varepsilon = 1 - \min_{\phi_i \in \mathcal{V}} P(\alpha^\ast\mid\phi_i)$ over
-visited states only.
+\textbf{Goal.}\; Compute the $\varepsilon$-optimality gap (Eq.~\eqref{eq:epsilon})
+over visited states only.
 
 \textbf{Code.}\; Appendix~\ref{app:epsilon}
 (\texttt{\_compute\_core} / \texttt{run\_epsilon\_optimality}, lines~110--130).
@@ -502,8 +545,9 @@ visited states only.
 
 \subsubsection{Simulation (\texttt{simulation.py})}\label{sec:impl-simulation}
 
-\textbf{Goal.}\; Generate synthetic trajectories with the learned policy, transitions,
-and Bernoulli penalties; compare data vs.\ simulated marginals and penalty rates.
+\textbf{Goal.}\; Generate synthetic trajectories using
+Eqs.~\eqref{eq:policy}, \eqref{eq:transition}, and \eqref{eq:ck-global}; compare
+data vs.\ simulated marginals and penalty rates.
 
 \textbf{Code.}\; Appendix~\ref{app:simulation}
 (\texttt{\_simulate\_block}, \texttt{run\_simulation}, lines~134--184).
@@ -527,9 +571,9 @@ indices); \textbf{pandas} (\texttt{drop}, \texttt{reset\_index}).
 
 \subsubsection{Model assumption check (\texttt{estimation.py}, \texttt{main.py})}\label{sec:impl-task6}
 
-\textbf{Goal.}\; Form $c_k(\phi_i)$ for each state--action pair and compare across
-states (spread diagnostic); optionally across perturbation trials
-(Section~\ref{sec:estimators}).
+\textbf{Goal.}\; Form $c_k(\phi_i)$ for each state--action pair
+(Eq.~\eqref{eq:ck-perstate}) and compare across states (spread diagnostic);
+optionally across perturbation trials.
 
 \textbf{Code.}\; \texttt{penalty\_per\_state} in Appendix~\ref{app:estimation};
 printing and spread helpers in Appendix~\ref{app:main}
@@ -584,8 +628,9 @@ assignment Tasks~1--6.
     Task & Metric & How evaluated \\
     \hline
     1 & Raw counts &
-    Report $N(\phi_i,\alpha_k)$, $N(\phi_i,\alpha_k,\phi_j)$, $N(\alpha_k,\beta)$
-    by counting matching rows (Section~\ref{sec:estimators}). \\
+    Report $N(\phi_i,\alpha_k)$ (Eq.~\eqref{eq:N-phi-alpha}),
+    $N(\phi_i,\alpha_k,\phi_j)$ (Eq.~\eqref{eq:N-transition}), and
+    $N(\alpha_k,\beta)$ (Eq.~\eqref{eq:N-alpha-beta}). \\
     \hline
     1 & Policy &
     $P(\alpha_k\mid\phi_i)=N(\phi_i,\alpha_k)/r_i$ for $r_i>0$. \\
@@ -606,8 +651,8 @@ assignment Tasks~1--6.
     $\sum_j P(\phi_j\mid\phi_i,\alpha_k)=1$ (PASS/FAIL). \\
     \hline
     1 & Consistency check (penalty) &
-    Verify computed $c_k$ equals the empirical fraction of $\beta{=}1$ among rows
-    with action $\alpha_k$ (PASS/FAIL). \\
+    Verify Eq.~\eqref{eq:ck-global} matches Eq.~\eqref{eq:penrate} on the same log
+    (PASS/FAIL). \\
     \hline
     2 & Optimal action &
     $\alpha^\ast\in\arg\min_k c_k$; if several actions tie at the minimum, report the
@@ -649,8 +694,8 @@ assignment Tasks~1--6.
     to baseline; summarize range, mean, and std across trials. \\
     \hline
     6 & Per-state penalty &
-    $c_k(\phi_i)=P(\beta{=}1\mid\alpha_k,\phi_i)$ from counts with
-    $N(\phi_i,\alpha_k)>0$ (Section~\ref{sec:estimators}). \\
+    $c_k(\phi_i)$ from Eqs.~\eqref{eq:N-phi-alpha-beta} and \eqref{eq:ck-perstate}
+    where $N(\phi_i,\alpha_k)>0$ (Eq.~\eqref{eq:N-phi-alpha}). \\
     \hline
     6 & Cross-state comparison &
     For each $k$, spread $=\max_{\phi_i} c_k(\phi_i)-\min_{\phi_i} c_k(\phi_i)$;
@@ -660,7 +705,7 @@ assignment Tasks~1--6.
 \end{table}
 
 Input: the full dataset ($|R|=3518$, $|S|=80$, $\bar{L}=43.98$).
-One orchestrated run (\texttt{python main.py}) validates the fingerprint, fits Tasks~1--4
+One orchestrated run (\texttt{python main.py}) prints row-count labels, fits Tasks~1--4
 on the full table (baseline), then refits on ten subsamples with 704 rows
 ($\approx$20\%) removed uniformly at random without replacement
 (\texttt{random\_seed=42}). Count and probability formulas are in
@@ -673,7 +718,7 @@ Per-trial count matrices and full Task~1--4 printouts are omitted here
 
 \subsubsection{Baseline (full data)}\label{sec:baseline-results}
 
-Fingerprint checksum $C=83035$ matches the assignment reference. Global penalties
+Checksum $C=83035$ (row-count labels) matches the assignment reference. Global penalties
 are ordered $c_1<c_2<c_3$ with $c_1=0.200$, $c_2=0.382$, $c_3=0.518$, so
 $\alpha^\ast=\alpha_1$ and $c_\ast=0.200$. The empirical policy is biased toward
 $\alpha_1$ in every state ($P(\alpha_1\mid\phi_i)\in[0.63,0.83]$), yet
