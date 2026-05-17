@@ -29,6 +29,5 @@ tasks.test {
 }
 
 dependencies {
-    implementation("org.apache.commons:commons-rng-client-api:1.6")
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }

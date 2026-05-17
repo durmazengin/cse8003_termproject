@@ -26,9 +26,10 @@ Or after generating the wrapper: `./gradlew run` (Unix) / `gradlew.bat run` (Win
 
 Run **Main** from the IDE (UTF-8 console) and copy the full log into `../report/experiments_java.txt` if you need a saved Java run for the report.
 
-Default config matches Python `load_all()`: 20% perturbation, 10 trials, seed 42.
+Default config: 20% perturbation, 10 trials, RNG seed 42 (`java.util.Random`).
 
 ## Notes
 
-- JDK 17+ required.
-- Console output follows the Python pipeline; optional CSV output dirs from standalone Python runs are not implemented yet.
+- JDK 17+ required; **no third-party libraries** for the application (JUnit only for tests).
+- Uses **`java.util.Random`** for perturbation row removal and Task 4 simulation. Results will **not** match NumPy/Python run-for-run; Tasks 1–3 on the same data remain deterministic and aligned.
+- Optional CSV output dirs from standalone Python runs are not implemented yet.

@@ -4,10 +4,12 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 /** Orchestrator (Python {@code main.py}). */
@@ -64,6 +66,7 @@ public final class Main {
                 dfFull,
                 csvPath,
                 csvPath.getFileName() + " (baseline)",
+                randomSeed,
                 printToConsole);
         List<PipelineRunResult> results = new ArrayList<>();
         results.add(baseline);
@@ -72,17 +75,17 @@ public final class Main {
         }
 
         if (perturbationRate > 0) {
-            if (experimentCount != PerturbationPlanData.DROP_INDICES.length) {
-                throw new IllegalStateException(
-                        "experiment_count must be " + PerturbationPlanData.DROP_INDICES.length
-                                + " to match Python perturbation_plan (re-run generate_perturbation_plan.py).");
-            }
+            double fraction = perturbationRate / 100.0;
+            Random rngMaster = new Random(randomSeed);
             for (int t = 0; t < experimentCount; t++) {
-                DropResult dropped = dropRowsFromPlan(dfFull, t);
+                int trialSeed = rngMaster.nextInt();
+                Random rng = new Random(trialSeed);
+                DropResult dropped = dropRowsRandomly(dfFull, fraction, rng);
                 PipelineRunResult perturbed = runTasks1To4(
                         dropped.rows(),
                         csvPath,
                         csvPath.getFileName() + " (trial " + t + ", removed " + dropped.removed() + ")",
+                        randomSeed,
                         printToConsole);
                 results.add(perturbed);
                 if (printToConsole) {
@@ -102,30 +105,36 @@ public final class Main {
 
     private record DropResult(List<Util.VsaRow> rows, int removed) {}
 
-    /** Same row removals as Python (indices from {@link PerturbationPlanData}). */
-    private static DropResult dropRowsFromPlan(List<Util.VsaRow> rows, int trial) {
-        if (rows.size() != PerturbationPlanData.N_ROWS) {
-            throw new IllegalStateException(
-                    "Expected " + PerturbationPlanData.N_ROWS + " rows, got " + rows.size());
+    private static DropResult dropRowsRandomly(List<Util.VsaRow> rows, double fractionRemove, Random rng) {
+        int n = rows.size();
+        if (n <= 1 || fractionRemove <= 0.0) {
+            return new DropResult(new ArrayList<>(rows), 0);
         }
-        int[] drop = PerturbationPlanData.DROP_INDICES[trial];
-        Set<Integer> dropSet = new HashSet<>();
-        for (int i : drop) {
-            dropSet.add(i);
+        int nRemove = (int) Math.round(fractionRemove * n);
+        nRemove = Math.min(Math.max(0, nRemove), n - 1);
+        if (nRemove <= 0) {
+            return new DropResult(new ArrayList<>(rows), 0);
         }
+        List<Integer> positions = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            positions.add(i);
+        }
+        Collections.shuffle(positions, rng);
+        Set<Integer> dropSet = new HashSet<>(positions.subList(0, nRemove));
         List<Util.VsaRow> out = new ArrayList<>();
-        for (int i = 0; i < rows.size(); i++) {
+        for (int i = 0; i < n; i++) {
             if (!dropSet.contains(i)) {
                 out.add(rows.get(i));
             }
         }
-        return new DropResult(out, drop.length);
+        return new DropResult(out, nRemove);
     }
 
     private static PipelineRunResult runTasks1To4(
             List<Util.VsaRow> rows,
             Path csvPath,
             String datasetLabel,
+            int randomSeed,
             boolean printToConsole) throws IOException {
 
         Util.EstimationResult estimation = Estimation.runEstimation(rows, datasetLabel, printToConsole, false);
@@ -133,7 +142,7 @@ public final class Main {
         EpsilonOptimalityAnalysis.EpsilonOptimalityResult epsilonRes =
                 EpsilonOptimalityAnalysis.runEpsilonOptimality(estimation, optimal, printToConsole);
         Simulation.SimulationResult simRes =
-                Simulation.runSimulation(estimation, csvPath, printToConsole, 42);
+                Simulation.runSimulation(estimation, csvPath, printToConsole, randomSeed);
 
         return new PipelineRunResult(
                 datasetLabel,

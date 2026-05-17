@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 /** Task 4 simulation (Python {@code simulation.py}). */
@@ -36,7 +37,7 @@ public final class Simulation {
             int randomSeed) throws IOException {
 
         List<Util.VsaRow> realRows = Util.loadVsaDataset(csvPath);
-        NumpyPcg64 rng = RandomUtil.numpyDefaultRng(randomSeed);
+        Random rng = new Random(randomSeed);
         List<Util.VsaRow> simRows = simulateBlock(realRows, estimation, rng);
 
         Map<String, Double> pActionData = marginalAction(realRows);
@@ -84,7 +85,7 @@ public final class Simulation {
     }
 
     private static List<Util.VsaRow> simulateBlock(
-            List<Util.VsaRow> realRows, Util.EstimationResult model, NumpyPcg64 rng) {
+            List<Util.VsaRow> realRows, Util.EstimationResult model, Random rng) {
 
         record SeqMeta(int seqId, int length, String phi0) {}
 
@@ -128,7 +129,7 @@ public final class Simulation {
                     phiNext = sampleFromProbs(rng, dstLabels, uniform);
                 }
                 double pPen = Math.min(1.0, Math.max(0.0, model.penalty().getOrDefault(a, 0.0)));
-                int beta = rng.binomial1(pPen);
+                int beta = rng.nextDouble() < pPen ? 1 : 0;
                 out.add(new Util.VsaRow(seq.seqId(), step, phi, phiNext, a, beta));
                 phi = phiNext;
             }
@@ -137,7 +138,7 @@ public final class Simulation {
     }
 
     private static String sampleFromRow(
-            NumpyPcg64 rng, List<String> labels, Util.Table2D table, String row) {
+            Random rng, List<String> labels, Util.Table2D table, String row) {
         double[] probs = new double[labels.size()];
         for (int i = 0; i < labels.size(); i++) {
             probs[i] = table.get(row, labels.get(i));
@@ -145,8 +146,7 @@ public final class Simulation {
         return sampleFromProbs(rng, labels, probs);
     }
 
-    /** Categorical draw matching NumPy {@code Generator.choice(..., p=probs)} (searchsorted side=right). */
-    private static String sampleFromProbs(NumpyPcg64 rng, List<String> labels, double[] probs) {
+    private static String sampleFromProbs(Random rng, List<String> labels, double[] probs) {
         double sum = 0.0;
         for (double p : probs) {
             sum += p;
