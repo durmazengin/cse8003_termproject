@@ -3,11 +3,12 @@ package cse8003.vsa.appl;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.util.Set;
 
 /** Orchestrator (Python {@code main.py}). */
 public final class Main {
@@ -71,12 +72,13 @@ public final class Main {
         }
 
         if (perturbationRate > 0) {
-            double fraction = perturbationRate / 100.0;
-            Random rngMaster = new Random(randomSeed);
+            if (experimentCount != PerturbationPlanData.DROP_INDICES.length) {
+                throw new IllegalStateException(
+                        "experiment_count must be " + PerturbationPlanData.DROP_INDICES.length
+                                + " to match Python perturbation_plan (re-run generate_perturbation_plan.py).");
+            }
             for (int t = 0; t < experimentCount; t++) {
-                int trialSeed = rngMaster.nextInt(Integer.MAX_VALUE);
-                Random rng = new Random(trialSeed);
-                DropResult dropped = dropRowsRandomly(dfFull, fraction, rng);
+                DropResult dropped = dropRowsFromPlan(dfFull, t);
                 PipelineRunResult perturbed = runTasks1To4(
                         dropped.rows(),
                         csvPath,
@@ -100,28 +102,24 @@ public final class Main {
 
     private record DropResult(List<Util.VsaRow> rows, int removed) {}
 
-    private static DropResult dropRowsRandomly(List<Util.VsaRow> rows, double fractionRemove, Random rng) {
-        int n = rows.size();
-        if (n <= 1 || fractionRemove <= 0.0) {
-            return new DropResult(Util.copyRows(rows), 0);
+    /** Same row removals as Python (indices from {@link PerturbationPlanData}). */
+    private static DropResult dropRowsFromPlan(List<Util.VsaRow> rows, int trial) {
+        if (rows.size() != PerturbationPlanData.N_ROWS) {
+            throw new IllegalStateException(
+                    "Expected " + PerturbationPlanData.N_ROWS + " rows, got " + rows.size());
         }
-        int nRemove = Math.min(Math.max(0, (int) Math.round(fractionRemove * n)), n - 1);
-        if (nRemove <= 0) {
-            return new DropResult(Util.copyRows(rows), 0);
+        int[] drop = PerturbationPlanData.DROP_INDICES[trial];
+        Set<Integer> dropSet = new HashSet<>();
+        for (int i : drop) {
+            dropSet.add(i);
         }
-        List<Integer> indices = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            indices.add(i);
-        }
-        Collections.shuffle(indices, rng);
-        List<Integer> drop = indices.subList(0, nRemove);
         List<Util.VsaRow> out = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            if (!drop.contains(i)) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (!dropSet.contains(i)) {
                 out.add(rows.get(i));
             }
         }
-        return new DropResult(out, nRemove);
+        return new DropResult(out, drop.length);
     }
 
     private static PipelineRunResult runTasks1To4(
@@ -195,10 +193,83 @@ public final class Main {
                     "  %s:  alpha*=%s  epsilon=%.6f  L1_act=%.4f%n",
                     r.label(), r.alphaStar(), r.epsilon(), r.l1Action()));
         }
+        if (perturbed.size() > 1) {
+            double[] epsilons = perturbed.stream().mapToDouble(PipelineRunResult::epsilon).toArray();
+            double epsMean = Arrays.stream(epsilons).average().orElse(0.0);
+            lines.append(String.format(
+                    "%n  epsilon mean=%.6f  std=%.6f  delta_mean_vs_baseline=%+.6f%n",
+                    epsMean, stdDev(epsilons), epsMean - baseline.epsilon()));
+        } else if (perturbed.size() == 1) {
+            lines.append(String.format(
+                    "%n  delta_epsilon (perturbed - baseline) = %+.6f%n",
+                    perturbed.get(0).epsilon() - baseline.epsilon()));
+        }
+
         Map<String, Double> baseSpread = spreadAcrossStates(baseline.cKPerState());
-        lines.append("\nSpread across states per action  (max_phi c_k - min_phi c_k):\n  Baseline:  ");
-        baseSpread.forEach((a, v) -> lines.append(String.format("%s=%.6f  ", a, v)));
+        List<String> actions = baseline.cKPerState().colLabels();
+        lines.append("Spread across states per action  (max_phi c_k - min_phi c_k):\n  Baseline:  ");
+        for (String a : actions) {
+            lines.append(String.format("%s=%.6f  ", a, baseSpread.get(a)));
+        }
+        if (!perturbed.isEmpty()) {
+            if (perturbed.size() > 1) {
+                lines.append("\n  Perturbed: ");
+                for (int i = 0; i < actions.size(); i++) {
+                    String a = actions.get(i);
+                    double[] vals = new double[perturbed.size()];
+                    for (int t = 0; t < perturbed.size(); t++) {
+                        vals[t] = spreadAcrossStates(perturbed.get(t).cKPerState()).get(a);
+                    }
+                    lines.append(String.format(
+                            "%s=mean %.6f  std %.6f  ", a, Arrays.stream(vals).average().orElse(0.0), stdDev(vals)));
+                }
+                double[] tableDeltas = perturbed.stream()
+                        .mapToDouble(r -> maxAbsTableDelta(baseline.cKPerState(), r.cKPerState()))
+                        .toArray();
+                lines.append(String.format(
+                        "%n%n  |c_k_per_state - baseline| max cell delta:%n"
+                                + "    mean=%.6f  std=%.6f  max=%.6f%n",
+                        Arrays.stream(tableDeltas).average().orElse(0.0),
+                        stdDev(tableDeltas),
+                        Arrays.stream(tableDeltas).max().orElse(0.0)));
+            } else {
+                Map<String, Double> pSpread = spreadAcrossStates(perturbed.get(0).cKPerState());
+                lines.append("\n  Perturbed: ");
+                for (String a : actions) {
+                    lines.append(String.format("%s=%.6f  ", a, pSpread.get(a)));
+                }
+                lines.append(String.format(
+                        "%n%n  |c_k_per_state - baseline| max cell delta: %.6f%n",
+                        maxAbsTableDelta(baseline.cKPerState(), perturbed.get(0).cKPerState())));
+            }
+        }
         System.out.println(lines);
+    }
+
+    private static double stdDev(double[] values) {
+        if (values.length < 2) {
+            return 0.0;
+        }
+        double mean = Arrays.stream(values).average().orElse(0.0);
+        double sumSq = 0.0;
+        for (double v : values) {
+            double d = v - mean;
+            sumSq += d * d;
+        }
+        return Math.sqrt(sumSq / (values.length - 1));
+    }
+
+    private static double maxAbsTableDelta(Util.Table2D reference, Util.Table2D other) {
+        double max = 0.0;
+        for (String row : reference.rowLabels()) {
+            for (String col : reference.colLabels()) {
+                double d = Math.abs(reference.get(row, col) - other.get(row, col));
+                if (d > max) {
+                    max = d;
+                }
+            }
+        }
+        return max;
     }
 
     private static void printCKPerStateRuns(List<PipelineRunResult> runs) {

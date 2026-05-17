@@ -8,7 +8,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.stream.Collectors;
 
 /** Task 4 simulation (Python {@code simulation.py}). */
@@ -37,7 +36,7 @@ public final class Simulation {
             int randomSeed) throws IOException {
 
         List<Util.VsaRow> realRows = Util.loadVsaDataset(csvPath);
-        Random rng = new Random(randomSeed);
+        NumpyPcg64 rng = RandomUtil.numpyDefaultRng(randomSeed);
         List<Util.VsaRow> simRows = simulateBlock(realRows, estimation, rng);
 
         Map<String, Double> pActionData = marginalAction(realRows);
@@ -85,7 +84,7 @@ public final class Simulation {
     }
 
     private static List<Util.VsaRow> simulateBlock(
-            List<Util.VsaRow> realRows, Util.EstimationResult model, Random rng) {
+            List<Util.VsaRow> realRows, Util.EstimationResult model, NumpyPcg64 rng) {
 
         record SeqMeta(int seqId, int length, String phi0) {}
 
@@ -121,10 +120,15 @@ public final class Simulation {
                 if (tmat.rowLabels().contains(phi)) {
                     phiNext = sampleFromRow(rng, dstLabels, tmat, phi);
                 } else {
-                    phiNext = dstLabels.get(rng.nextInt(dstLabels.size()));
+                    double[] uniform = new double[dstLabels.size()];
+                    double p = 1.0 / dstLabels.size();
+                    for (int i = 0; i < uniform.length; i++) {
+                        uniform[i] = p;
+                    }
+                    phiNext = sampleFromProbs(rng, dstLabels, uniform);
                 }
                 double pPen = Math.min(1.0, Math.max(0.0, model.penalty().getOrDefault(a, 0.0)));
-                int beta = rng.nextDouble() < pPen ? 1 : 0;
+                int beta = rng.binomial1(pPen);
                 out.add(new Util.VsaRow(seq.seqId(), step, phi, phiNext, a, beta));
                 phi = phiNext;
             }
@@ -133,12 +137,19 @@ public final class Simulation {
     }
 
     private static String sampleFromRow(
-            Random rng, List<String> labels, Util.Table2D table, String row) {
+            NumpyPcg64 rng, List<String> labels, Util.Table2D table, String row) {
         double[] probs = new double[labels.size()];
-        double sum = 0.0;
         for (int i = 0; i < labels.size(); i++) {
             probs[i] = table.get(row, labels.get(i));
-            sum += probs[i];
+        }
+        return sampleFromProbs(rng, labels, probs);
+    }
+
+    /** Categorical draw matching NumPy {@code Generator.choice(..., p=probs)} (searchsorted side=right). */
+    private static String sampleFromProbs(NumpyPcg64 rng, List<String> labels, double[] probs) {
+        double sum = 0.0;
+        for (double p : probs) {
+            sum += p;
         }
         if (sum < 1e-15) {
             double u = 1.0 / labels.size();
@@ -154,7 +165,7 @@ public final class Simulation {
         double c = 0.0;
         for (int i = 0; i < labels.size(); i++) {
             c += probs[i];
-            if (u <= c) {
+            if (u < c) {
                 return labels.get(i);
             }
         }
@@ -198,9 +209,28 @@ public final class Simulation {
         StringBuilder lines = new StringBuilder();
         lines.append(Util.section("Task 4 — Simulation   (source: estimation-result, seed=" + r.randomSeed() + ")"));
         lines.append("Real rows: ").append(realRows).append("  |  Synthetic rows: ").append(r.nSyntheticRows()).append("\n\n");
-        lines.append("|P_data − P_sim| — action distribution\n").append(r.absDiffAction()).append("\n");
+        lines.append("|P_data − P_sim| — action distribution\n");
+        lines.append(formatSeries(r.absDiffAction())).append("\n");
         lines.append(String.format("  L1 sum of abs diffs (actions): %.6f%n%n", r.l1Action()));
+        lines.append("|P_data − P_sim| — phi_src visitation\n");
+        lines.append(formatSeries(r.absDiffPhiSrc())).append("\n");
+        lines.append(String.format("  L1 sum: %.6f%n%n", r.l1PhiSrc()));
+        lines.append("|P_data − P_sim| — phi_dst visitation\n");
+        lines.append(formatSeries(r.absDiffPhiDst())).append("\n");
+        lines.append(String.format("  L1 sum: %.6f%n%n", r.l1PhiDst()));
+        lines.append("|mean_beta_data − mean_beta_sim| per action (penalty rate)\n");
+        lines.append(formatSeries(r.absDiffPenaltyPerAction())).append("\n");
+        double l1Pen = r.absDiffPenaltyPerAction().values().stream().mapToDouble(Double::doubleValue).sum();
+        lines.append(String.format("  L1 sum (per-action |Δ|): %.6f%n%n", l1Pen));
         lines.append(String.format("Global penalty rate  |Δ|:  data=%.6f  sim=%.6f  |Δ|=%.6f%n", gData, gSim, r.absDiffPenaltyGlobal()));
         System.out.print(lines);
+    }
+
+    private static String formatSeries(Map<String, Double> values) {
+        StringBuilder sb = new StringBuilder();
+        for (var e : values.entrySet()) {
+            sb.append(String.format("%s    %.6f%n", e.getKey(), e.getValue()));
+        }
+        return sb.toString();
     }
 }
